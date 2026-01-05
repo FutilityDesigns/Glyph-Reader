@@ -6,8 +6,9 @@ Licensing is by component:
    PolyForm Noncommercial License 1.0.0.
    See LICENSES/PolyForm-Noncommercial-1.0.0.txt
 
-2) Hardware designs, PCB, CAD, enclosure, and related production files (Hardware/PCB Files/):
-   CERN Open Hardware Licence Version 2 - Non-Commercial (CERN-OHL-NC v2).
-   See LICENSES/CERN-OHL-NC-2.0.txt
+2) Hardware designs, including PCB files, schematics, CAD, enclosures,
+   and related production assets (Hardware/PCB Files/):
+   Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
+   See LICENSES/CC-BY-NC-SA-4.0.txt
 
 Commercial use is not permitted without an additional commercial license from the author.
