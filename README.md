@@ -120,3 +120,17 @@ The built in spells may share some familiarity to a certain story franchise, how
 9. Silence - Silencing charm
 10. Halt - Stopping charm
 
+
+
+
+
+## Licensing
+
+This project is source-available and non-commercial.
+
+- Firmware and tools are licensed under the **PolyForm Noncommercial License 1.0.0**.
+- Hardware designs (PCB, CAD, enclosure files) are licensed under **CC BY-NC-SA 4.0**.
+
+Commercial use — including manufacturing, selling hardware, selling kits,
+or bundling the firmware in a product — is not permitted without a separate
+commercial license from the author.

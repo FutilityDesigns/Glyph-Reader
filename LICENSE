@@ -1,0 +1,13 @@
+This repository is source-available and non-commercial.
+
+Licensing is by component:
+
+1) Firmware (Firmware/) and tools/scripts (Tools/):
+   PolyForm Noncommercial License 1.0.0.
+   See LICENSES/PolyForm-Noncommercial-1.0.0.txt
+
+2) Hardware designs, PCB, CAD, enclosure, and related production files (Hardware/PCB Files/):
+   CERN Open Hardware Licence Version 2 - Non-Commercial (CERN-OHL-NC v2).
+   See LICENSES/CERN-OHL-NC-2.0.txt
+
+Commercial use is not permitted without an additional commercial license from the author.

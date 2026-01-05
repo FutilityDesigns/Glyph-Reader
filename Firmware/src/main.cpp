@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 /*
 IR Wand Tracker - Main Application Code
 Uses ESP32-S3 with Pixart IR Camera to track wand movements and recognize gestures.
