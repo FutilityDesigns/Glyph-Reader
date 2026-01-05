@@ -14,7 +14,7 @@ Uses ESP32-S3 with Pixart IR Camera to track wand movements and recognize gestur
 #include "spell_matching.h"
 #include "webFunctions.h"
 #include "preferenceFunctions.h"
-#include "wandCommander.h"
+#include "glyphReader.h"
 #include "cameraFunctions.h"
 #include "wifiFunctions.h"
 #include "screenFunctions.h"

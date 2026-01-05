@@ -3,7 +3,7 @@ Functions related to the IR Camera
 */
 
 #include "cameraFunctions.h"
-#include "wandCommander.h"
+#include "glyphReader.h"
 #include "led_control.h"
 #include "preferenceFunctions.h"
 #include "spell_matching.h"

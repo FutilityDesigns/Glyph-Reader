@@ -5,7 +5,7 @@ This file adds the customization options to the wifi manager portal
 #include "webFunctions.h"
 #include <WiFiManager.h>
 #include "preferenceFunctions.h"
-#include "wandCommander.h"
+#include "glyphReader.h"
 
 // WiFiManager instance
 WiFiManager wm;

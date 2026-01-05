@@ -3,7 +3,7 @@ All functions realted to screen operations
 */
 
 #include "screenFunctions.h"
-#include "wandCommander.h"
+#include "glyphReader.h"
 #include "sdFunctions.h"
 
 // Create display instance

@@ -2,7 +2,7 @@
 This file holds all the functions related to the preferences library
 */
 
-#include <wandCommander.h>
+#include "glyphReader.h"
 #include "preferenceFunctions.h"
 
 // Preferences instance

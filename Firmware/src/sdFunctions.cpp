@@ -2,7 +2,7 @@
 All functions related to SD card operations
 */
 #include "sdFunctions.h"
-#include "wandCommander.h"
+#include "glyphReader.h"
 #include "spell_patterns.h"
 #include <map>
 #include <ArduinoJson.h>

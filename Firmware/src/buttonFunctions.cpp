@@ -2,7 +2,7 @@
 This file holds all functions related to the buttons
 */
 
-#include "wandCommander.h"
+#include "glyphReader.h"
 #include "buttonFunctions.h"
 
 Button2 button1;

@@ -2,7 +2,7 @@
 Functions related to WiFi and MQTT
 */
 #include "wifiFunctions.h"
-#include "wandCommander.h"
+#include "glyphReader.h"
 #include "preferenceFunctions.h"
 
 // WiFi and MQTT
