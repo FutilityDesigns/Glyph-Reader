@@ -89,7 +89,7 @@ You can customize spells by placing a `spells.json` file on the SD card. This al
 - Use custom image files
 - Add completely new spells
 
-**📖 See [CUSTOM_SPELLS.md](CUSTOM_SPELLS.md) for complete documentation and examples**
+**📖 See [CUSTOM_SPELLS.md](Firmware/CUSTOM_SPELLS.md) for complete documentation and examples**
 
 Quick example to rename a spell:
 ```json
