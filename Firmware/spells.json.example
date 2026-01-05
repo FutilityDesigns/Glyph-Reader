@@ -1,0 +1,67 @@
+{
+  "_comment": "Custom Spell Configuration File",
+  "_description": "Place this file as 'spells.json' on your SD card root to customize spells",
+  "_instructions": [
+    "You can modify existing built-in spells or add completely new custom spells",
+    "For modifications, use 'builtInName' to identify the spell to modify",
+    "Pattern points use screen coordinates: x (0-1024), y (0-768)"
+    
+  ],
+  
+  "modify": [
+    {
+      "_comment": "Example: Rename Ignite and use a custom image",
+      "builtInName": "Ignite",
+      "customName": "Fire Spell",
+      "imageFile": "my_fire_image.bmp"
+    },
+    {
+      "_comment": "Example: Redefine Unlock's pattern to a simple circle",
+      "builtInName": "Unlock",
+      "pattern": [
+        {"x": 512, "y": 184},
+        {"x": 712, "y": 384},
+        {"x": 512, "y": 584},
+        {"x": 312, "y": 384},
+        {"x": 512, "y": 184}
+      ]
+    },
+    {
+      "_comment": "Example: Rename and redefine Gust completely",
+      "builtInName": "Gust",
+      "customName": "Wind Blast",
+      "imageFile": "wind.bmp",
+      "pattern": [
+        {"x": 100, "y": 384},
+        {"x": 300, "y": 200},
+        {"x": 500, "y": 384},
+        {"x": 700, "y": 200},
+        {"x": 900, "y": 384}
+      ]
+    }
+  ],
+  
+  "custom": [
+    {
+      "_comment": "Example: Add a completely new spell with a star pattern",
+      "name": "Illuminate",
+      "imageFile": "illuminate.bmp",
+      "pattern": [
+        {"x": 512, "y": 200},
+        {"x": 450, "y": 450},
+        {"x": 700, "y": 300},
+        {"x": 324, "y": 300},
+        {"x": 574, "y": 450},
+        {"x": 512, "y": 200}
+      ]
+    },
+    {
+      "_comment": "Example: Add another custom spell - simple diagonal swipe with no image (will use text display)",
+      "name": "Disarm",
+      "pattern": [
+        {"x": 200, "y": 200},
+        {"x": 824, "y": 584}
+      ]
+    }
+  ]
+}

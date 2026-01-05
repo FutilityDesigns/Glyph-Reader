@@ -1,0 +1,17 @@
+{
+  "modify": [
+    {
+      "builtInName": "Incendio",
+      "customName": "Fire Spell"
+    }
+  ],
+  "custom": [
+    {
+      "name": "Lumos",
+      "pattern": [
+        {"x": 512, "y": 600},
+        {"x": 512, "y": 200}
+      ]
+    }
+  ]
+}

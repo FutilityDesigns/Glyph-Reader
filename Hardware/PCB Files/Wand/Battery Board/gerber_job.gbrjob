@@ -1,0 +1,24 @@
+{
+    "Header": {
+        "Comment": "All values are metric (mm)",
+        "CreationDate": "2026-01-05T21:09:12Z",
+        "GenerationSoftware": {
+            "Application": "Fusion Electronics",
+            "Vendor": "Autodesk",
+            "Version": "9.7.0"
+        },
+        "Part": "Single"
+    },
+    "Overall": {
+        "BoardThickness": 0.8608,
+        "LayerNumber": 2,
+        "Name": {
+            "ProjectId": "Wand Battery rev2.1 v3"
+        },
+        "Owner": "Christopher Egan <chris.egan@arctevity.com>",
+        "Size": {
+            "X": 71.374,
+            "Y": 10.16
+        }
+    }
+}
