@@ -1,6 +1,41 @@
-/*
-All functions related to SD card operations
-*/
+/**
+================================================================================
+ SD Functions - SD Card Interface and Custom Spell Management
+================================================================================
+ * This module manages SD card operations for loading custom spell patterns
+ * and associated BMP image files. Provides abstraction layer for file I/O
+ * and implements JSON-based spell customization system.
+ * 
+ * HARDWARE:
+ * - Interface: SPI (HSPI bus, separate from display SPI)
+ * - Card Detect: Optional GPIO switch 
+ * 
+ * FILE SYSTEM STRUCTURE:
+ * - /spells.json: Custom spell configurations (optional)
+ * - /<spellname>.bmp: Spell image files (240x240, 24-bit BMP)
+ * - Custom image filenames supported via JSON configuration
+ * 
+ * CUSTOM SPELL SYSTEM (/spells.json):
+ * The JSON configuration file supports two operations:
+ * 
+ * 1. MODIFY BUILT-IN SPELLS:
+ *    - Change display name (e.g., "Lumos" → "Light")
+ *    - Specify custom image file (e.g., "my_image.bmp")
+ *    - Redefine gesture pattern (array of x,y coordinates)
+ * 
+ * 2. ADD NEW SPELLS:
+ *    - Define completely new spell patterns
+ *    - Associate custom image files
+ *    - Pattern format: array of {x, y} objects (0-1000 range)
+ * 
+ * BMP IMAGE SUPPORT:
+ * - Format: 24-bit uncompressed BMP (BI_RGB)
+ * - Size: 240x240 pixels recommended for full-screen display
+ * - Color: RGB888 (converted to RGB565 for display)
+ * - Naming: Default is /<spellname>.bmp (lowercase)
+ * - Custom naming via JSON "imageFile" field
+ */
+
 #include "sdFunctions.h"
 #include "glyphReader.h"
 #include "spell_patterns.h"
@@ -392,7 +427,7 @@ bool loadCustomSpells() {
   LOG_DEBUG("Successfully loaded %s", configFile);
   
   // Process modifications to existing spells
-  if (doc["modify"].is<JsonObject>() ) {
+  if (doc["modify"].is<JsonArray>()) {
     JsonArray modifications = doc["modify"].as<JsonArray>();
     for (JsonObject mod : modifications) {
       const char* builtInName = mod["builtInName"];

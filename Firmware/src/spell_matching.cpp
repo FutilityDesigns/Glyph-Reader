@@ -1,14 +1,30 @@
 /*
-Functions for matching drawn gestures against known spell patterns
-
-This file implements a gesture recognition system that compares user-drawn
-wand movements against predefined spell patterns. The matching algorithm uses:
-1. Normalization - scales gestures to a standard coordinate space
-2. Resampling - converts gestures to a fixed number of evenly-spaced points
-3. Similarity scoring - combines position and direction matching
-
-This approach is scale, translation, and rotation-invariant, allowing spells
-to be recognized regardless of how large or where in space they're drawn.
+================================================================================
+  Spell Matching - Gesture Pattern Recognition Implementation
+================================================================================
+  
+  This module implements the core pattern matching algorithm that compares
+  user-drawn wand gestures against known spell patterns.
+  
+  Algorithm Overview:
+    1. Normalization: Scale gesture to 0-1000 coordinate space (scale/translation invariant)
+    2. Resampling: Convert to fixed 40 points evenly distributed along path (length invariant)
+    3. Position Similarity: Calculate average Euclidean distance between corresponding points
+    4. Direction Similarity: Compare angles between consecutive point vectors
+    5. Combined Score: 60% position + 40% direction weighted average
+  
+  Key Features:
+    - Scale invariant: Large and small gestures match if shape is the same
+    - Translation invariant: Location in tracking space doesn't matter
+    - Length invariant: Fast and slow gestures match if shape is the same
+    - Rotation partially addressed through direction similarity
+  
+  Similarity Scoring:
+    - Position: Lower average distance = higher similarity
+    - Direction: More parallel strokes = higher similarity
+    - Final score: 0.0 (no match) to 1.0 (perfect match)
+    - Threshold: 0.70 (70% similarity required for successful match)  
+================================================================================
 */
 #include "spell_matching.h"
 #include <Arduino.h>
@@ -16,18 +32,15 @@ to be recognized regardless of how large or where in space they're drawn.
 
 /**
  * Normalize trajectory to 0-1000 coordinate space
- * 
  * This function makes gesture recognition scale and translation invariant by:
  * - Finding the bounding box of all points in the trajectory
  * - Scaling all points proportionally to fit in a 1000x1000 space
  * - Translating so the minimum X,Y becomes (0,0)
- * 
  * Example: A small gesture in the corner and a large gesture in the center
  * will both normalize to the same shape in 0-1000 space if they have the
  * same proportions.
- * 
- * @param traj The raw trajectory points from IR tracking
- * @return Normalized trajectory with coordinates in 0-1000 range
+ * traj: The raw trajectory points from IR tracking
+ * return Normalized trajectory with coordinates in 0-1000 range
  */
 std::vector<Point> normalizeTrajectory(const std::vector<Point>& traj) {
   if (traj.size() < 2) return traj;
@@ -65,24 +78,20 @@ std::vector<Point> normalizeTrajectory(const std::vector<Point>& traj) {
 
 /**
  * Resample trajectory to a fixed number of evenly-spaced points
- * 
  * This function ensures all gestures have the same number of points regardless
  * of how fast they were drawn or how many samples were captured. Points are
  * distributed evenly along the path length, not by time.
- * 
  * Example: A slowly-drawn circle might have 500 captured points, while a fast
  * circle might have only 50 points. Both will resample to 20 evenly-spaced
  * points along the circumference.
- * 
  * Algorithm:
  * 1. Calculate total path length by summing distances between consecutive points
  * 2. Divide into equal segments (total length / desired points)
  * 3. Walk along the path, placing new points at each segment boundary
  * 4. Interpolate between original points when segment boundary falls between them
- * 
- * @param traj The trajectory to resample (should be normalized first)
- * @param numPoints The desired number of points (typically 20 for spell matching)
- * @return Resampled trajectory with exactly numPoints evenly-spaced points
+ * traj: The trajectory to resample (should be normalized first)
+ * numPoints: The desired number of points (typically 20 for spell matching)
+ * return Resampled trajectory with exactly numPoints evenly-spaced points
  */
 std::vector<Point> resampleTrajectory(const std::vector<Point>& traj, int numPoints) {
   if (traj.size() < 2) return traj;
@@ -144,22 +153,18 @@ std::vector<Point> resampleTrajectory(const std::vector<Point>& traj, int numPoi
 
 /**
  * Calculate direction similarity between two trajectories
- * 
  * This measures how well the directional flow of two gestures matches.
  * Two gestures could have points in similar positions but with opposite
  * directions (e.g., clockwise vs counter-clockwise circle).
- * 
  * Algorithm:
  * 1. For each pair of consecutive points, calculate direction angle using atan2
  * 2. Compare angles between corresponding segments in both trajectories
  * 3. Average the angle differences and normalize to 0-1 score
- * 
  * The angle difference is wrapped to handle the -π to +π boundary
  * (e.g., -179° and +179° are only 2° apart, not 358° apart)
- * 
- * @param traj1 First trajectory (resampled to same length as traj2)
- * @param traj2 Second trajectory (resampled to same length as traj1)
- * @return Similarity score from 0 (opposite directions) to 1 (identical directions)
+ * traj1: First trajectory (resampled to same length as traj2)
+ * traj2: Second trajectory (resampled to same length as traj1)
+ * return Similarity score from 0 (opposite directions) to 1 (identical directions)
  */
 float calculateDirectionSimilarity(const std::vector<Point>& traj1, const std::vector<Point>& traj2) {
   if (traj1.size() != traj2.size() || traj1.size() < 2) return 0;
@@ -205,21 +210,17 @@ float calculateDirectionSimilarity(const std::vector<Point>& traj1, const std::v
 
 /**
  * Calculate overall similarity between two trajectories
- * 
  * This is the main similarity metric that combines two aspects:
  * 1. Position similarity - how close corresponding points are to each other
  * 2. Direction similarity - how well the directional flow matches
- * 
  * The combination (60% position, 40% direction) gives more weight to shape
  * while still ensuring directional correctness. This prevents false matches
  * like confusing a clockwise circle with a counter-clockwise one.
- * 
  * Both trajectories must be normalized and resampled to the same number of
  * points before calling this function.
- * 
- * @param traj1 First trajectory (normalized and resampled)
- * @param traj2 Second trajectory (normalized and resampled)
- * @return Similarity score from 0 (completely different) to 1 (identical)
+ * traj1: First trajectory (normalized and resampled)
+ * traj2: Second trajectory (normalized and resampled)
+ * return Similarity score from 0 (completely different) to 1 (identical)
  */
 float calculateSimilarity(const std::vector<Point>& traj1, const std::vector<Point>& traj2) {
   if (traj1.size() != traj2.size() || traj1.empty()) return 0;
@@ -253,11 +254,9 @@ float calculateSimilarity(const std::vector<Point>& traj1, const std::vector<Poi
 
 /**
  * Attempt to match a drawn gesture against all known spell patterns
- * 
  * This is the main entry point for spell recognition. It takes a raw trajectory
  * from the IR camera and compares it against all predefined spell patterns to
  * find the best match.
- * 
  * Process:
  * 1. Validate trajectory has minimum points
  * 2. Normalize and resample user's gesture to standard form
@@ -265,11 +264,7 @@ float calculateSimilarity(const std::vector<Point>& traj1, const std::vector<Poi
  * 4. Find the spell with highest similarity score
  * 5. Check if best match exceeds threshold (defined in spell_matching.h)
  * 6. Output result to serial for debugging and UI display
- * 
- * Note: This function only compares shapes, not drawing speed or duration.
- * Speed constraints were removed to allow both fast flicks and slow deliberate draws.
- * 
- * @param currentTrajectory The raw trajectory points captured from IR tracking
+ * currentTrajectory: The raw trajectory points captured from IR tracking
  */
 void matchSpell(const std::vector<Point>& currentTrajectory) {
   // Reject trajectories that are too short to be meaningful gestures
@@ -290,17 +285,33 @@ void matchSpell(const std::vector<Point>& currentTrajectory) {
   
   // Compare against all known spell patterns
   // Find the spell with the highest similarity score
+  // Note: Spell patterns are already normalized and resampled to 40 points during initialization
   float bestMatch = 0;
   const char* bestSpell = "Unknown";
   
+  Serial.println("=== Spell Matching Results ===");
+  
   for (const auto& spell : spellPatterns) {
-    // Normalize and resample the spell pattern to same form as user gesture
-    // This ensures apples-to-apples comparison
-    std::vector<Point> spellNorm = normalizeTrajectory(spell.pattern);
-    std::vector<Point> spellResampled = resampleTrajectory(spellNorm, 40);
+    // Calculate position similarity separately for diagnostics
+    float totalDistance = 0;
+    float maxPossibleDistance = 1414.0;
+    for (size_t i = 0; i < resampled.size(); i++) {
+      float dx = resampled[i].x - spell.pattern[i].x;
+      float dy = resampled[i].y - spell.pattern[i].y;
+      totalDistance += sqrt(dx*dx + dy*dy);
+    }
+    float avgDistance = totalDistance / resampled.size();
+    float positionSimilarity = 1.0 - (avgDistance / maxPossibleDistance);
     
-    // Calculate similarity (0-1 score, 1 = perfect match)
-    float similarity = calculateSimilarity(resampled, spellResampled);
+    // Calculate direction similarity for diagnostics
+    float directionSimilarity = calculateDirectionSimilarity(resampled, spell.pattern);
+    
+    // Combined similarity
+    float similarity = (positionSimilarity * 0.6) + (directionSimilarity * 0.4);
+    
+    // Print detailed breakdown
+    Serial.printf("  %s: %.2f%% (pos: %.2f%%, dir: %.2f%%)\n", 
+                  spell.name, similarity * 100, positionSimilarity * 100, directionSimilarity * 100);
     
     // Track the best match found so far
     if (similarity > bestMatch) {
@@ -308,6 +319,8 @@ void matchSpell(const std::vector<Point>& currentTrajectory) {
       bestSpell = spell.name;
     }
   }
+  
+  Serial.println("==============================");
   
   // Output result to serial for debugging
   // MATCH_THRESHOLD is typically 0.7 (70% similarity required)

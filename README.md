@@ -8,6 +8,7 @@ A magical wand system powered by ESP32-S3 with gesture recognition and spell cas
 - **Custom Spells**: Modify existing spells or create your own via SD card configuration
 - **Visual Feedback**: Display spell names and images on circular TFT screen
 - **Home Automation**: Device can join your home network and report detected spells over MQTT
+- **Night Light**: Spells can be set to turn on and off a nightlight mode
 
 #### Open Items to be completed
 1. All boards are still being verified, designs should not be ordered until this line is removed
@@ -16,8 +17,7 @@ A magical wand system powered by ESP32-S3 with gesture recognition and spell cas
 4. Functionality for the built in buttons needs to be programmed
 5. DIY version schematics need to be drawn for those wishing to build their own without the Custom Glyph Reader PCBs
 6. Designs need to be submitted to PCB assembly services for purchase as assembled units. Alternatively some assembled boards may be availible for purchse directly
-7. Some improvement still is required on the matching functions, false matches still happen more commonly than desired
-
+7. ~~Some improvement still is required on the matching functions, false matches still happen more commonly than desired~~ - Matching greatly improved
 
 
 ## Getting Started
@@ -54,6 +54,9 @@ If you wish to connect the device to home automation, you must configure MQTT on
 3. Enter your mqtt broker's ip address and port
 4. Enter the desired topic you want to publish on
 5. When a spell is identified a message will be published with the built in spell name as the payload
+
+### Configuring Night Light
+There are two drop downs that allow setting specific spells to directly trigger the night light to turn on or off. These spells will no longer display their spell image, and will instead show Night Light status screens. 
 
 ### Tuning the gesture Tracking
 There are some variables that can be adjusted to tune the gesture detection and tracking. These are also in the setup page of the webportal at http://glyphreader.local
@@ -105,7 +108,6 @@ Quick example to rename a spell:
 ```
 
 
-
 ## Built-in Spells
 The built in spells may share some familiarity to a certain story franchise, however the names have been generalized to avoid any potential copyright issues. If you wish to use story accurate names you can use the spell customization to rename any spell you wish. 
 
@@ -119,7 +121,9 @@ The built in spells may share some familiarity to a certain story franchise, how
 8. Levitate - Levitation charm
 9. Silence - Silencing charm
 10. Halt - Stopping charm
-
+11. Resume - Reanimation Charm
+12. Illuminate - Illuminating Spell
+13. Dark - Darkness Spell
 
 
 
