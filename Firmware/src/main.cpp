@@ -66,6 +66,9 @@ const unsigned long screenTimeout = 60000;      // Turn off screen after 60 seco
 // LED timing control
 unsigned long ledOnTime = 0;                    // Timestamp when LED effect started
 const unsigned long ledeffectTimeout = 5000;    // Turn off LEDs after 5 seconds of inactivity
+unsigned long nightlightOnTime = 0;             // Timestamp when nightlight mode started
+//const unsigned long nightlightTimeout = 28800000; // Nightlight auto-off after 8 hours
+const unsigned long nightlightTimeout = 60000; // Nightlight auto-off after 10 seconds (for testing)
 
 // System state flags
 bool backlightStateOn = false;    // Current backlight on/off state
@@ -333,6 +336,7 @@ void setup() {
   screenOnTime = millis();  
 }
 
+
 //=====================================
 // Main Loop 
 //=====================================
@@ -348,6 +352,7 @@ void loop() {
   //-----------------------------------
   // Handle web portal (WiFiManager)
   // Processes HTTP requests, serves configuration pages
+  // WiFiManager automatically manages AP mode when WiFi is disconnected
   wm.process();
 
   //-----------------------------------
@@ -408,10 +413,18 @@ void loop() {
   if (ledOnTime > 0 && (millis() - ledOnTime >= ledeffectTimeout) && currentMode != LED_NIGHTLIGHT) {
     // After 5 seconds, either return to nightlight or turn off
     if (nightlightActive) {
-      ledNightlight();  // Return to nightlight mode
+      ledNightlight(NIGHTLIGHT_BRIGHTNESS);  // Return to nightlight mode with saved brightness
     } else {
       setLEDMode(LED_OFF);  // Turn off completely
     }
     ledOnTime = 0;  // Reset timer
+  }
+
+  // Check if the nightlight mode needs to be turned off
+  if (nightlightActive && (millis() - nightlightOnTime >= nightlightTimeout)) {
+    // Turn off nightlight after configured duration
+    nightlightActive = false;
+    setLEDMode(LED_OFF);
+    LOG_DEBUG("Nightlight mode timed out - LEDs turned off");
   }
 }

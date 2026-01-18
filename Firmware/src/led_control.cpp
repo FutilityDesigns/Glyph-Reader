@@ -3,12 +3,12 @@
   LED Control - NeoPixel LED Effects Implementation
 ================================================================================
   
-  This module controls the NeoPixel RGB LED strip for visual feedback during
+  This module controls the NeoPixel RGBW LED strip for visual feedback during
   wand gesture tracking and spell detection.
   
   Hardware:
-    - WS2812B NeoPixel LED strip (10 LEDs)
-    - Data pin: GPIO 45
+    - NeoPixel RGBW LED strip (12 LEDs)
+    - Data pin: GPIO 48
   
   LED Modes:
     - LED_OFF: All LEDs off (default state)
@@ -28,6 +28,7 @@
 */
 
 #include "led_control.h"
+#include "glyphReader.h"
 
 //=====================================
 // Global NeoPixel Object
@@ -36,12 +37,12 @@
 /**
  * NeoPixel strip object
  * Configuration:
- *   - NUM_LEDS: 10 LEDs in strip
- *   - LED_PIN: GPIO 45 (data line)
- *   - NEO_GRB: Color order (Green-Red-Blue)
+ *   - NUM_LEDS: 12 LEDs in strip
+ *   - LED_PIN: GPIO 48 (data line)
+ *   - NEO_GRBW: Color order (Green-Red-Blue-White)
  *   - NEO_KHZ800: 800kHz signal timing
  */
-Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRBW + NEO_KHZ800);
 
 //=====================================
 // Effect State Variables
@@ -58,6 +59,15 @@ static unsigned long lastEffectUpdate = 0;
 
 /// Effect update interval in milliseconds (50ms = 20fps animation)
 const unsigned long EFFECT_UPDATE_INTERVAL = 50;
+
+// Effect-specific state variables
+static uint8_t pulseDirection = 1;          // 1 = brightening, 0 = dimming
+static uint8_t pulseBrightness = 0;         // Current pulse brightness (0-255)
+static uint32_t pulseColor = 0;             // Color for pulse effect
+static int wavePosition = 0;                // Position of wave (0-NUM_LEDS)
+static uint32_t waveColor = 0;              // Color for wave effect
+static int cometPosition = 0;               // Position of comet head
+static uint32_t cometColor = 0;             // Color for comet effect
 
 //=====================================
 // LED Initialization
@@ -84,17 +94,18 @@ void initLEDs() {
 //=====================================
 
 /**
- * Set all LEDs to a specific RGB color
+ * Set all LEDs to a specific RGBW color
  * Sets all LEDs in the strip to the same solid color and switches
  * to LED_SOLID mode to prevent animation overwriting.
  * r: Red component (0-255)
  * g: Green component (0-255)
  * b: Blue component (0-255)
+ * w: White component (0-255)
  */
-void setLED(uint8_t r, uint8_t g, uint8_t b) {
+void setLED(uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
   currentMode = LED_SOLID;  // Switch to solid mode (no animation)
   for(int i = 0; i < NUM_LEDS; i++) {
-    strip.setPixelColor(i, strip.Color(r, g, b));
+    strip.setPixelColor(i, strip.Color(r, g, b, w));
   }
   strip.show();  // Update physical LEDs
 }
@@ -141,7 +152,7 @@ void updateLEDs() {
   lastEffectUpdate = currentTime;
   
   switch(currentMode) {
-    case LED_RAINBOW:
+    case LED_RAINBOW: {
       //-----------------------------------
       // Rainbow Effect
       //-----------------------------------
@@ -156,8 +167,9 @@ void updateLEDs() {
       }
       strip.show();
       break;
+    }
       
-    case LED_SPARKLE:
+    case LED_SPARKLE: {
       //-----------------------------------
       // Sparkle Effect
       //-----------------------------------
@@ -176,6 +188,83 @@ void updateLEDs() {
       }
       strip.show();
       break;
+    }
+      
+    case LED_PULSE: {
+      //-----------------------------------
+      // Pulse/Breathing Effect
+      //-----------------------------------
+      // Smoothly fade all LEDs in and out
+      if (pulseDirection) {
+        pulseBrightness += 5;
+        if (pulseBrightness >= 250) pulseDirection = 0;
+      } else {
+        pulseBrightness -= 5;
+        if (pulseBrightness <= 5) pulseDirection = 1;
+      }
+      
+      // Apply brightness to the chosen color
+      uint8_t r = (pulseColor >> 16) & 0xFF;
+      uint8_t g = (pulseColor >> 8) & 0xFF;
+      uint8_t b = pulseColor & 0xFF;
+      for(int i = 0; i < NUM_LEDS; i++) {
+        strip.setPixelColor(i, (r * pulseBrightness) / 255, 
+                                (g * pulseBrightness) / 255, 
+                                (b * pulseBrightness) / 255);
+      }
+      strip.show();
+      break;
+    }
+      
+    case LED_COLOR_WAVE: {
+      //-----------------------------------
+      // Color Wave Effect
+      //-----------------------------------
+      // Wave of color moves through the strip
+      wavePosition = (wavePosition + 1) % (NUM_LEDS * 2);
+      
+      for(int i = 0; i < NUM_LEDS; i++) {
+        // Calculate distance from wave center
+        int distance = abs(wavePosition - i);
+        if (distance > NUM_LEDS) distance = NUM_LEDS * 2 - distance;
+        
+        // Brightness falls off with distance
+        uint8_t brightness = max(0, 255 - (distance * 40));
+        
+        uint8_t r = ((waveColor >> 16) & 0xFF) * brightness / 255;
+        uint8_t g = ((waveColor >> 8) & 0xFF) * brightness / 255;
+        uint8_t b = (waveColor & 0xFF) * brightness / 255;
+        
+        strip.setPixelColor(i, r, g, b);
+      }
+      strip.show();
+      break;
+    }
+      
+    case LED_COMET: {
+      //-----------------------------------
+      // Comet/Meteor Effect
+      //-----------------------------------
+      // Comet with trailing tail moves through strip
+      cometPosition = (cometPosition + 1) % (NUM_LEDS + 8);  // Extra space for tail to clear
+      
+      strip.clear();
+      for(int i = 0; i < NUM_LEDS; i++) {
+        // Calculate tail brightness (fades behind comet head)
+        int tailDistance = cometPosition - i;
+        if (tailDistance >= 0 && tailDistance < 8) {
+          uint8_t brightness = 255 - (tailDistance * 32);  // Fade over 8 LEDs
+          
+          uint8_t r = ((cometColor >> 16) & 0xFF) * brightness / 255;
+          uint8_t g = ((cometColor >> 8) & 0xFF) * brightness / 255;
+          uint8_t b = (cometColor & 0xFF) * brightness / 255;
+          
+          strip.setPixelColor(i, r, g, b);
+        }
+      }
+      strip.show();
+      break;
+    }
       
     case LED_SOLID:
     case LED_OFF:
@@ -203,32 +292,32 @@ void ledOff() {
  * Set LEDs to a solid color by name
  * Convenience function for setting common colors used during gesture tracking.
  * Supported colors:
- *   - "green":  Ready to track (RGB: 0, 50, 0)
- *   - "blue":   Recording gesture (RGB: 0, 0, 50)
- *   - "red":    Error or no match (RGB: 50, 0, 0)
- *   - "yellow": IR detected, waiting for stillness (RGB: 50, 50, 0)
- *   - "purple": Custom state (RGB: 25, 0, 25)
- *   - "orange": Custom state (RGB: 50, 25, 0)
+ *   - "green":  Ready to track (RGBW: 0, 50, 0, 0)
+ *   - "blue":   Recording gesture (RGBW: 0, 0, 50, 0)
+ *   - "red":    Error or no match (RGBW: 50, 0, 0, 0)
+ *   - "yellow": IR detected, waiting for stillness (RGBW: 50, 50, 0, 0)
+ *   - "purple": Custom state (RGBW: 25, 0, 25, 0)
+ *   - "orange": Custom state (RGBW: 50, 25, 0, 0)
  * color: Color name (case-sensitive string)
  */
 void ledSolid(const char* color){
     if (strcmp(color, "green") == 0) {
-        setLED(0, 50, 0);         // Green: Ready to track
+        setLED(0, 150, 0, 0);      // Green: Ready to track
         setLEDMode(LED_SOLID);
     } else if (strcmp(color, "blue") == 0) {
-        setLED(0, 0, 50);         // Blue: Recording gesture
+        setLED(0, 0, 150, 0);      // Blue: Recording gesture
         setLEDMode(LED_SOLID);
     } else if (strcmp(color, "red") == 0) {
-        setLED(50, 0, 0);         // Red: Error/no match
+        setLED(150, 0, 0, 0);      // Red: Error/no match
         setLEDMode(LED_SOLID);
     } else if (strcmp(color, "yellow") == 0) {
-        setLED(50, 50, 0);        // Yellow: IR detected, waiting
+        setLED(150, 150, 0, 0);     // Yellow: IR detected, waiting
         setLEDMode(LED_SOLID);
     } else if (strcmp(color, "purple") == 0) {
-        setLED(25, 0, 25);        // Purple: Custom state
+        setLED(150, 0, 150, 0);     // Purple: Custom state
         setLEDMode(LED_SOLID);
     } else if (strcmp(color, "orange") == 0) {
-        setLED(50, 25, 0);        // Orange: Custom state
+        setLED(150, 75, 0, 0);     // Orange: Custom state
         setLEDMode(LED_SOLID);
     } else {
         // Unknown color - turn off
@@ -256,12 +345,86 @@ void ledSparkle() {
 }
 
 /**
+ * Start pulse/breathing effect
+ * LEDs smoothly fade in and out in a random color.
+ * Creates a calming breathing effect.
+ */
+void ledPulse() {
+  pulseColor = strip.ColorHSV(random(65536), 255, 255);  // Random color
+  pulseBrightness = 0;
+  pulseDirection = 1;
+  setLEDMode(LED_PULSE);
+}
+
+/**
+ * Start color wave effect
+ * Wave of color moves through the LED strip.
+ * Creates a flowing, dynamic effect.
+ */
+void ledColorWave() {
+  waveColor = strip.ColorHSV(random(65536), 255, 255);  // Random color
+  wavePosition = 0;
+  setLEDMode(LED_COLOR_WAVE);
+}
+
+/**
+ * Start comet effect
+ * Comet/meteor with trailing tail moves through strip.
+ * Creates a shooting star effect.
+ */
+void ledComet() {
+  cometColor = strip.ColorHSV(random(65536), 255, 255);  // Random color
+  cometPosition = 0;
+  setLEDMode(LED_COMET);
+}
+
+/**
+ * Pick random spell effect and activate it
+ * Randomly selects one of the available spell effects:
+ * - Sparkle (twinkling stars)
+ * - Rainbow (color cycle)
+ * - Pulse (breathing)
+ * - ColorWave (flowing wave)
+ * - Comet (shooting star)
+ * Used for spell detection feedback to add variety and excitement.
+ */
+void ledRandomEffect() {
+  int effect = random(5);  // Pick from 5 effects
+  
+  switch(effect) {
+    case 0:
+      ledSparkle();
+      break;
+    case 1:
+      ledRainbow();
+      break;
+    case 2:
+      ledPulse();
+      break;
+    case 3:
+      ledColorWave();
+      break;
+    case 4:
+      ledComet();
+      break;
+    default:
+      ledSparkle();
+      break;
+  }
+}
+
+/**
  * Activate nightlight mode
  * Sets LEDs to soft warm white color and switches to LED_NIGHTLIGHT mode.
  * Used for ambient lighting when nightlight feature is activated via spell.
+ * brightness: White channel brightness (0-255, clamped to safe range 10-255)
  */
-void ledNightlight() {
-  // Soft warm white (red-heavy for warm tone)
-  setLED(50, 30, 10);
+void ledNightlight(int brightness) {
+  // Clamp brightness to safe range (10 minimum for visibility, 255 maximum)
+  int safeBrightness = constrain(brightness, 10, 255);
+  
+  // Soft warm white using dedicated white channel
+  setLED(0, 0, 0, safeBrightness);
+  nightlightOnTime = millis();
   setLEDMode(LED_NIGHTLIGHT);
 }

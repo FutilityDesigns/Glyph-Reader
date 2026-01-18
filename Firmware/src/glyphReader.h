@@ -117,4 +117,10 @@ extern unsigned long ledOnTime;
  */
 extern bool nightlightActive;
 
+/**
+ * Timestamp when nightlight mode was activated
+ * Used to track nightlight timeout duration.
+ */
+extern unsigned long nightlightOnTime;
+
 #endif // WAND_COMMANDER_H

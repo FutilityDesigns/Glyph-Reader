@@ -63,13 +63,14 @@ enum class PrefType {
     PREF_X(MQTT_HOST,            STRING, "mqttHost")    \
     PREF_X(MQTT_PORT,            INT,    "mqttPort")    \
     PREF_X(MQTT_TOPIC,           STRING, "mqttTopic")    \
-    PREF_X(MOVEMENT_THRESHOLD,   INT,    "movementThreshold")    \
-    PREF_X(STILLNESS_THRESHOLD,  INT,    "stillnessThreshold")    \
-    PREF_X(READY_STILLNESS_TIME, INT,    "readyStillnessTime")    \
+    PREF_X(MOVEMENT_THRESHOLD,   INT,    "movThreshold")    \
+    PREF_X(STILLNESS_THRESHOLD,  INT,    "stillThreshold")    \
+    PREF_X(READY_STILLNESS_TIME, INT,    "readyStillTime")    \
     PREF_X(GESTURE_TIMEOUT,      INT,    "gestureTimeout")    \
     PREF_X(IR_LOSS_TIMEOUT,      INT,    "irLossTimeout")    \
-    PREF_X(NIGHTLIGHT_ON_SPELL,  STRING, "nightlightOn")    \
-    PREF_X(NIGHTLIGHT_OFF_SPELL, STRING, "nightlightOff")   \
+    PREF_X(NIGHTLIGHT_ON_SPELL,  STRING, "NLon")    \
+    PREF_X(NIGHTLIGHT_OFF_SPELL, STRING, "NLoff")   \
+    PREF_X(NIGHTLIGHT_BRIGHTNESS, INT,   "NLbright") \
 
 //=====================================
 // Preference Key Enumeration
@@ -167,5 +168,6 @@ extern int IR_LOSS_TIMEOUT;       ///< Milliseconds before IR loss confirmed (de
 // Nightlight Configuration
 extern String NIGHTLIGHT_ON_SPELL;   ///< Spell name to activate nightlight (e.g., "Illuminate")
 extern String NIGHTLIGHT_OFF_SPELL;  ///< Spell name to deactivate nightlight (e.g., "Dark")
+extern int NIGHTLIGHT_BRIGHTNESS;    ///< Nightlight brightness (0-255, default 150)
 
 #endif // PREFERNCE_FUNCTIONS_H

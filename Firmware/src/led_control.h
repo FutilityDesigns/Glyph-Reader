@@ -1,14 +1,14 @@
 /*
 ================================================================================
-  LED Control - NeoPixel RGB LED Control Header
+  LED Control - NeoPixel RGBW LED Control Header
 ================================================================================
   
-  This module manages WS2812B NeoPixel RGB LED effects for visual feedback.
+  This module manages NeoPixel RGBW LED effects for visual feedback.
   LEDs indicate system state and spell detection with colors and patterns.
   
   Hardware:
-    - WS2812B NeoPixel RGB LED strip (10 LEDs)
-    - Connected to GPIO 45
+    - NeoPixel RGBW LED strip (12 LEDs)
+    - Connected to GPIO 48
   
   LED Modes:
     - LED_OFF: All LEDs off
@@ -36,10 +36,10 @@
 //=====================================
 
 /// GPIO pin connected to NeoPixel data line
-#define LED_PIN 45
+#define LED_PIN 48
 
 /// Number of LEDs in the strip
-#define NUM_LEDS 10
+#define NUM_LEDS 12
 
 //=====================================
 // Global Objects
@@ -62,6 +62,9 @@ enum LEDMode {
   LED_SOLID,       ///< Single solid color (set via ledSolid())
   LED_RAINBOW,     ///< Animated rainbow cycle
   LED_SPARKLE,     ///< Random sparkle effect
+  LED_PULSE,       ///< Breathing pulse effect
+  LED_COLOR_WAVE,  ///< Wave of color moving through strip
+  LED_COMET,       ///< Comet/meteor trail effect
   LED_NIGHTLIGHT   ///< Soft warm white nightlight
 };
 
@@ -136,10 +139,39 @@ void ledRainbow();
 void ledSparkle();
 
 /**
- * Start nightlight effect
- * Soft warm white glow at reduced brightness.
- * Switches mode to LED_NIGHTLIGHT.
+ * Start pulse/breathing effect
+ * LEDs smoothly fade in and out in a random color.
+ * Switches mode to LED_PULSE.
  */
-void ledNightlight();
+void ledPulse();
+
+/**
+ * Start color wave effect
+ * Wave of color moves through the LED strip.
+ * Switches mode to LED_COLOR_WAVE.
+ */
+void ledColorWave();
+
+/**
+ * Start comet effect
+ * Comet/meteor with trailing tail moves through strip.
+ * Switches mode to LED_COMET.
+ */
+void ledComet();
+
+/**
+ * Pick random spell effect and activate it
+ * Randomly selects one of: Sparkle, Rainbow, Pulse, ColorWave, Comet
+ * Used for spell detection feedback to add variety.
+ */
+void ledRandomEffect();
+
+/**
+ * Start nightlight effect
+ * Soft warm white glow at configurable brightness.
+ * Switches mode to LED_NIGHTLIGHT.
+ * brightness: White channel brightness (0-255, default 150)
+ */
+void ledNightlight(int brightness = 150);
 
 #endif // LED_CONTROL_H

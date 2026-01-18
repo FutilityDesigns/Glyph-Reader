@@ -600,22 +600,42 @@ void readCameraData() {
           if (NIGHTLIGHT_ON_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_ON_SPELL.c_str()) == 0) {
             // Turn on nightlight mode
             nightlightActive = true;
-            ledNightlight();
-            displaySpellName("Nightlight On");
+            ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+            displaySpellName(bestSpell);
             publishSpell(bestSpell);
             ledOnTime = 0;  // Don't timeout nightlight
           } else if (NIGHTLIGHT_OFF_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_OFF_SPELL.c_str()) == 0) {
             // Turn off nightlight mode
             nightlightActive = false;
             ledOff();
-            displaySpellName("Nightlight Off");
+            displaySpellName(bestSpell);
             publishSpell(bestSpell);
             ledOnTime = 0;
+          } else if (nightlightActive && (strcasecmp(bestSpell, "Raise") == 0 || strcasecmp(bestSpell, "Lower") == 0)) {
+            // Nightlight brightness adjustment - Raise/Lower spells
+            if (strcasecmp(bestSpell, "Raise") == 0) {
+              NIGHTLIGHT_BRIGHTNESS = constrain(NIGHTLIGHT_BRIGHTNESS + 50, 10, 255);
+              LOG_DEBUG("Nightlight brightness increased to %d", NIGHTLIGHT_BRIGHTNESS);
+            } else {
+              NIGHTLIGHT_BRIGHTNESS = constrain(NIGHTLIGHT_BRIGHTNESS - 50, 10, 255);
+              LOG_DEBUG("Nightlight brightness decreased to %d", NIGHTLIGHT_BRIGHTNESS);
+            }
+            
+            // Save new brightness to preferences
+            setPref(PrefKey::NIGHTLIGHT_BRIGHTNESS, NIGHTLIGHT_BRIGHTNESS);
+            
+            // Apply new brightness immediately
+            ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+            
+            // Show spell feedback
+            displaySpellName(bestSpell);
+            publishSpell(bestSpell);
+            ledOnTime = 0;  // Stay in nightlight mode
           } else {
-            // Regular spell - publish to MQTT and show effects
+            // Regular spell - publish to MQTT and show random effect
             publishSpell(bestSpell);
             displaySpellName(bestSpell);
-            setLEDMode(LED_SPARKLE);
+            ledRandomEffect();  // Pick a random LED effect for variety
             ledOnTime = millis();  // Start LED effect timer
           }
         } else {

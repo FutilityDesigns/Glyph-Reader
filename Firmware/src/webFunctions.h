@@ -61,6 +61,7 @@ extern WiFiManager wm;
  *   - AP mode: http://192.168.4.1
  * return true if connected to WiFi, false if in AP mode
  * note: Must be called AFTER initSpellPatterns() (spell dropdowns require patterns)
+ * note: WiFiManager will automatically manage AP mode when WiFi is disconnected
  */
 bool initWM();
 

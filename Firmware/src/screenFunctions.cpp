@@ -277,7 +277,7 @@ void clearDisplay() {
  * Sets backlight GPIO LOW to disable LED backlight.
  */
 void backlightOff() {
-    digitalWrite(TFT_BL, LOW);  // Turn off backlight LED
+    digitalWrite(TFT_BL, HIGH);  // Turn off backlight LED
     LOG_DEBUG("Backlight turned OFF (pin %d set to LOW)", TFT_BL);
     backlightStateOn = false;  // Update global state flag
 }
@@ -287,7 +287,7 @@ void backlightOff() {
  * Sets backlight GPIO HIGH to enable LED backlight.
  */
 void backlightOn() {
-    digitalWrite(TFT_BL, HIGH);  // Turn on backlight LED
+    digitalWrite(TFT_BL, LOW);  // Turn on backlight LED
     LOG_DEBUG("Backlight turned ON (pin %d set to HIGH)", TFT_BL);
     backlightStateOn = true;  // Update global state flag
 }

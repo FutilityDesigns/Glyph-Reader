@@ -44,6 +44,7 @@ int GESTURE_TIMEOUT;
 int IR_LOSS_TIMEOUT;
 String NIGHTLIGHT_ON_SPELL;
 String NIGHTLIGHT_OFF_SPELL;
+int NIGHTLIGHT_BRIGHTNESS;
 
 // Define preference specifications
 static const PrefSpec PREF_SPECS[] = {
@@ -224,6 +225,7 @@ void loadPreferences() {
     
     // Nightlight Control Spells
     NIGHTLIGHT_ON_SPELL = getPrefString(PrefKey::NIGHTLIGHT_ON_SPELL, "");  // No default spell
-    NIGHTLIGHT_OFF_SPELL = getPrefString(PrefKey::NIGHTLIGHT_OFF_SPELL, "");  // No default spell
-}
+    NIGHTLIGHT_OFF_SPELL = getPrefString(PrefKey::NIGHTLIGHT_OFF_SPELL, "");  // No default spell    NIGHTLIGHT_BRIGHTNESS = getPrefInt(PrefKey::NIGHTLIGHT_BRIGHTNESS, 150);  // Default medium brightness}
     
+    NIGHTLIGHT_BRIGHTNESS = getPrefInt(PrefKey::NIGHTLIGHT_BRIGHTNESS, 150);  // Default medium brightness
+}

@@ -472,23 +472,27 @@ bool initWM() {
     std::vector<const char*> menu = {"wifi", "param", "info", "sep", "restart"};
     wm.setMenu(menu);
 
-    // Set timeout for autoConnect (30 seconds)
-    wm.setConfigPortalTimeout(30);
+    // Enable WiFiManager to automatically manage AP when disconnected
+    // This makes WiFiManager handle AP creation whenever WiFi is not connected
+    wm.setConfigPortalBlocking(false);  // Non-blocking mode
     
-    // Don't block forever - set connect timeout
+    // Set connect timeout for saved WiFi credentials
     wm.setConnectTimeout(20);  // 20 seconds to connect to saved WiFi
     
-    // Try to connect to saved WiFi or start portal
+    // Try to connect to saved WiFi or start AP if no connection
+    // In non-blocking mode, this returns immediately and wm.process() handles everything
     bool connected = wm.autoConnect("GlyphReader-Setup");
     
     if (connected) {
         LOG_ALWAYS("WiFi connected: %s", WiFi.SSID().c_str());
+        LOG_ALWAYS("Web portal available at: http://%s", WiFi.localIP().toString().c_str());
     } else {
-        LOG_ALWAYS("WiFi failed to connect - continuing without network");
+        LOG_ALWAYS("WiFi not connected - AP mode active (GlyphReader-Setup)");
     }
     
-    // Always start web portal for configuration (non-blocking)
+    // Start web portal for configuration (works both in STA and AP mode)
+    // This keeps the web interface accessible even when connected to WiFi
     wm.startWebPortal();
     
-    return connected;  // Return status but don't block boot
+    return connected;  // Return initial status
 }
