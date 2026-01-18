@@ -4,12 +4,16 @@ This file holds all functions related to the buttons
 
 #include "glyphReader.h"
 #include "buttonFunctions.h"
+#include "led_control.h"
+#include "preferenceFunctions.h"
 
 Button2 button1;
 Button2 button2;
 
 // Initialize buttons and set handlers
 void buttonInit() {
+
+    LOG_DEBUG("Initializing buttons...");
 
     button1.begin(BUTTON_1_PIN);
     button1.setLongClickTime(1000); // 1 second for long click
@@ -33,6 +37,8 @@ void buttonInit() {
     button2.setLongClickHandler(longClick);
     button2.setLongClickDetectedRetriggerable(false);
 
+    LOG_DEBUG("Buttons initialized.");
+
 }
 
 void click(Button2& btn) {
@@ -42,6 +48,14 @@ void click(Button2& btn) {
         case BUTTON_1_PIN:
             // Handle button 1 click
             LOG_DEBUG("Button 1 clicked");
+            // Toggle the nightlight state
+            if (nightlightActive) {
+                nightlightActive = false;
+                setLEDMode(LED_OFF);
+            } else {
+                nightlightActive = true;
+                ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+            }
             break;
         case BUTTON_2_PIN:
             // Handle button 2 click
@@ -72,6 +86,32 @@ void tripleClick(Button2& btn) {
             break;
         case BUTTON_2_PIN:
             LOG_DEBUG("Button 2 multiple click: ", btn.getNumberOfClicks());
+            break;
+        default:
+            break;
+    }
+}
+
+void longClickDetected(Button2& btn) {
+    switch (btn.getPin()) {
+        case BUTTON_1_PIN:
+            LOG_DEBUG("Button 1 long click detected");
+            break;
+        case BUTTON_2_PIN:
+            LOG_DEBUG("Button 2 long click detected");
+            break;
+        default:
+            break;
+    }
+}
+
+void longClick(Button2& btn) {
+    switch (btn.getPin()) {
+        case BUTTON_1_PIN:
+            LOG_DEBUG("Button 1 long click executed");
+            break;
+        case BUTTON_2_PIN:
+            LOG_DEBUG("Button 2 long click executed");
             break;
         default:
             break;

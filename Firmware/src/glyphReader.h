@@ -32,8 +32,8 @@
 //=====================================
 
 // Button GPIO assignments (reserved for future features)
-#define BUTTON_1_PIN  11    // GPIO11 for Button 1 (not currently used)
-#define BUTTON_2_PIN  33    // GPIO33 for Button 2 (not currently used)
+#define BUTTON_1_PIN  41    // GPIO41 for Button 1
+#define BUTTON_2_PIN  42    // GPIO42 for Button 2
 
 // I2C Bus Configuration
 #define I2C_SDA 6           // GPIO6 - I2C Data Line (Pixart IR camera)

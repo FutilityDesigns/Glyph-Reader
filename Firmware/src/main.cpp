@@ -39,6 +39,7 @@
 #include "led_control.h"          // NeoPixel LED control and effects
 #include "screenFunctions.h"      // GC9A01A display operations
 #include "cameraFunctions.h"      // Pixart IR camera I2C communication
+#include "buttonFunctions.h"    // Button handling
 
 // Spell recognition system
 #include "spell_patterns.h"       // Predefined gesture patterns
@@ -322,6 +323,18 @@ void setup() {
     updateSetupDisplay(step, "Camera", "pass");
     step++;
   }
+
+  //-----------------------------------
+  // Step 13: Button Initialization
+  //-----------------------------------
+  // Initialize the buttons
+  updateSetupDisplay(step, "Buttons", "init");
+  delay(100); // Short delay to stabilize
+  buttonInit();
+  updateSetupDisplay(step, "Buttons", "pass");
+  step++;
+
+  LOG_DEBUG("buttons complete");
   
   //-----------------------------------
   // Setup Complete
@@ -330,6 +343,7 @@ void setup() {
   delay(1000);
   
   // Clear setup display
+  LOG_DEBUG("Setup complete - clearing display");
   clearDisplay();
   
   // Set screen on time for timeout tracking
@@ -354,6 +368,13 @@ void loop() {
   // Processes HTTP requests, serves configuration pages
   // WiFiManager automatically manages AP mode when WiFi is disconnected
   wm.process();
+
+  //-----------------------------------
+  // Button Processing
+  //-----------------------------------
+  // Check for button presses and process them
+  button1.loop();
+  button2.loop();
 
   //-----------------------------------
   // Camera Reinitialization

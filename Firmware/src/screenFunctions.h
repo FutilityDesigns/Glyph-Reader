@@ -39,7 +39,7 @@ struct Point;
 /// SPI Chip Select pin
 #define TFT_CS    10
 
-/// Data/Command select pin (0=command, 1=data)
+/// Data/Command select pin
 #define TFT_DC    9
 
 /// Reset pin (active low)
