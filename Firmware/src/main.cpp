@@ -77,6 +77,12 @@ bool nightlightActive = false;    // Track if nightlight mode is currently on
 bool cameraInitialized = false;   // Track if camera successfully initialized
 uint32_t lastReadTime = 0;        // Timestamp of last camera read (for 100Hz timing)
 
+// Settings menu state
+bool inSettingsMode = false;      // Are we in settings menu?
+bool editingSettingValue = false; // Are we currently editing a value?
+int currentSettingIndex = 0;      // Which setting are we viewing/editing?
+int settingValueIndex = 0;        // Current value option for multi-choice settings
+
 
 //=====================================
 // I2C Device Scanner
@@ -400,8 +406,9 @@ void loop() {
   // Camera Data Acquisition
   //-----------------------------------
   // Read camera data at high speed (aiming for ~100Hz)
+  // Skip camera processing when in settings mode
   uint32_t currentTime = millis();
-  if (currentTime - lastReadTime >= 10) { // Read every 10ms (100Hz)
+  if (!inSettingsMode && currentTime - lastReadTime >= 10) { // Read every 10ms (100Hz)
     readCameraData();  // Process IR tracking and gesture recognition
     lastReadTime = currentTime;
   }

@@ -477,7 +477,7 @@ bool initWM() {
     wm.setConfigPortalBlocking(false);  // Non-blocking mode
     
     // Set connect timeout for saved WiFi credentials
-    wm.setConnectTimeout(20);  // 20 seconds to connect to saved WiFi
+    wm.setConnectTimeout(15);  // 15 seconds to connect to saved WiFi
     
     // Try to connect to saved WiFi or start AP if no connection
     // In non-blocking mode, this returns immediately and wm.process() handles everything

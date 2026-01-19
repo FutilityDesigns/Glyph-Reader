@@ -597,20 +597,47 @@ void readCameraData() {
         
         if (bestMatch >= MATCH_THRESHOLD) {
           // Spell detected - check if it's a nightlight control spell
-          if (NIGHTLIGHT_ON_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_ON_SPELL.c_str()) == 0) {
+          
+          // Check if this spell is configured for nightlight control
+          bool isNightlightOnSpell = (NIGHTLIGHT_ON_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_ON_SPELL.c_str()) == 0);
+          bool isNightlightOffSpell = (NIGHTLIGHT_OFF_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_OFF_SPELL.c_str()) == 0);
+          
+          // Check if same spell is assigned to both (toggle mode)
+          bool isToggleMode = (NIGHTLIGHT_ON_SPELL.length() > 0 && 
+                               NIGHTLIGHT_OFF_SPELL.length() > 0 && 
+                               strcasecmp(NIGHTLIGHT_ON_SPELL.c_str(), NIGHTLIGHT_OFF_SPELL.c_str()) == 0);
+          
+          if (isToggleMode && (isNightlightOnSpell || isNightlightOffSpell)) {
+            // Toggle mode - same spell turns on and off
+            nightlightActive = !nightlightActive;
+            if (nightlightActive) {
+              ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+              nightlightOnTime = millis();
+              LOG_DEBUG("Nightlight toggled ON");
+            } else {
+              ledOff();
+              LOG_DEBUG("Nightlight toggled OFF");
+            }
+            displaySpellName(bestSpell);
+            publishSpell(bestSpell);
+            ledOnTime = 0;  // Don't timeout
+          } else if (isNightlightOnSpell) {
             // Turn on nightlight mode
             nightlightActive = true;
             ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+            nightlightOnTime = millis();
             displaySpellName(bestSpell);
             publishSpell(bestSpell);
             ledOnTime = 0;  // Don't timeout nightlight
-          } else if (NIGHTLIGHT_OFF_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_OFF_SPELL.c_str()) == 0) {
+            LOG_DEBUG("Nightlight turned ON");
+          } else if (isNightlightOffSpell) {
             // Turn off nightlight mode
             nightlightActive = false;
             ledOff();
             displaySpellName(bestSpell);
             publishSpell(bestSpell);
             ledOnTime = 0;
+            LOG_DEBUG("Nightlight turned OFF");
           } else if (nightlightActive && (strcasecmp(bestSpell, "Raise") == 0 || strcasecmp(bestSpell, "Lower") == 0)) {
             // Nightlight brightness adjustment - Raise/Lower spells
             if (strcasecmp(bestSpell, "Raise") == 0) {

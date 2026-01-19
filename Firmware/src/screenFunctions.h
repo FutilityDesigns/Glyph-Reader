@@ -144,4 +144,18 @@ bool displayImageFromSD(const char* filename, int16_t x = 0, int16_t y = 0);
  */
 void visualizeSpellPattern(const char* name, const std::vector<Point>& pattern);
 
+//=====================================
+// Settings Menu Display
+//=====================================
+
+/**
+ * Display settings menu on screen
+ * Shows the current setting name and value, with visual indicators
+ * for navigation state (browsing vs editing).
+ * settingIndex: Index of the current setting (0 = Nightlight ON spell, 1 = Nightlight OFF spell)
+ * valueIndex: Index of the current value option for the setting
+ * isEditing: True if currently editing the value, false if browsing settings
+ */
+void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing);
+
 #endif // SCREEN_FUNCTIONS_H

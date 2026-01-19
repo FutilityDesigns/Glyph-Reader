@@ -509,3 +509,108 @@ void visualizeSpellPattern(const char* name, const std::vector<Point>& pattern) 
   
   delay(1200);  // Hold final pattern for 1.2 seconds so user can see it
 }
+
+//=====================================
+// Settings Menu Display
+//=====================================
+
+/**
+ * Display settings menu on screen
+ * Shows the current setting name and value with visual indicators.
+ * Displays:
+ * - Setting name at top
+ * - Current value in center (large text)
+ * - Navigation indicators (arrows/brackets)
+ * - Edit mode indicator
+ * 
+ * settingIndex: Which setting to display (0 = NL ON, 1 = NL OFF)
+ * valueIndex: Which value option is selected (0 = Disabled, 1+ = spell index)
+ * isEditing: True if currently editing value, false if browsing settings
+ */
+void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
+    // Clear display
+    tft.fillScreen(0x0000);  // Black background
+    
+    // Define setting names
+    const char* settingNames[] = {
+        "NL ON Spell",
+        "NL OFF Spell"
+    };
+    
+    // Get value name
+    String valueName;
+    if (valueIndex == 0) {
+        valueName = "Disabled";
+    } else if (valueIndex > 0 && valueIndex <= (int)spellPatterns.size()) {
+        valueName = spellPatterns[valueIndex - 1].name;
+    } else {
+        valueName = "Error";
+    }
+    
+    // Display setting name at top (centered)
+    tft.setTextColor(0xFFFF);  // White text
+    tft.setTextSize(2);
+    
+    if (settingIndex >= 0 && settingIndex < 2) {
+        String settingNameStr = settingNames[settingIndex];
+        int nameWidth = settingNameStr.length() * 12;  // Size 2: ~12px per char
+        int nameCenterX = (240 - nameWidth) / 2;
+        tft.setCursor(nameCenterX, 30);
+        tft.print(settingNameStr);
+    }
+    
+    // Display navigation/edit indicator (centered)
+    tft.setTextSize(1);
+    if (isEditing) {
+        // Editing mode - show brackets around value
+        tft.setTextColor(0x07E0);  // Green for edit mode
+        String editText = "[ EDITING ]";
+        int editWidth = editText.length() * 6;  // Size 1: ~6px per char
+        int editCenterX = (240 - editWidth) / 2;
+        tft.setCursor(editCenterX, 60);
+        tft.print(editText);
+    } else {
+        // Browse mode - show navigation hint
+        tft.setTextColor(0xFFE0);  // Yellow for browse mode
+        String browseText = "< BROWSE >";
+        int browseWidth = browseText.length() * 6;  // Size 1: ~6px per char
+        int browseCenterX = (240 - browseWidth) / 2;
+        tft.setCursor(browseCenterX, 60);
+        tft.print(browseText);
+    }
+    
+    // Display current value in center (large text)
+    tft.setTextColor(0xFFFF);  // White text
+    tft.setTextSize(2);
+    
+    // Calculate center position for value text
+    int textWidth = valueName.length() * 12;  // Size 2: ~12px per char
+    int centerX = (240 - textWidth) / 2;
+    tft.setCursor(centerX, 120);
+    tft.print(valueName);
+    
+    // Display instructions at bottom (centered)
+    tft.setTextSize(1);
+    tft.setTextColor(0x7BEF);  // Light gray
+    
+    String instruction1;
+    if (isEditing) {
+        instruction1 = "BTN2:Cycle BTN1:Save";
+    } else {
+        instruction1 = "BTN2:Next BTN1:Edit";
+    }
+    int inst1Width = instruction1.length() * 6;  // Size 1: ~6px per char
+    int inst1CenterX = (240 - inst1Width) / 2;
+    tft.setCursor(inst1CenterX, 200);
+    tft.print(instruction1);
+    
+    // Show long-press hint (centered)
+    String instruction2 = "Hold BTN2: Exit";
+    int inst2Width = instruction2.length() * 6;  // Size 1: ~6px per char
+    int inst2CenterX = (240 - inst2Width) / 2;
+    tft.setCursor(inst2CenterX, 215);
+    tft.print(instruction2);
+    
+    // Update screen timestamp
+    screenOnTime = millis();
+}

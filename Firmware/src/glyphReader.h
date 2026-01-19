@@ -123,4 +123,14 @@ extern bool nightlightActive;
  */
 extern unsigned long nightlightOnTime;
 
+/**
+ * Settings Menu Variables
+ * Used to manage the settings menu
+ * and allow direct user settings changes
+ */
+extern bool inSettingsMode;         // True if currently in settings menu
+extern bool editingSettingValue;    // True if currently editing a setting value
+extern int currentSettingIndex;     // Index of currently selected setting
+extern int settingValueIndex;       // Index of currently selected value within setting
+
 #endif // WAND_COMMANDER_H

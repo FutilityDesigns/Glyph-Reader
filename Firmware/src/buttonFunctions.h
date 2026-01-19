@@ -92,6 +92,59 @@ void doubleClick(Button2& btn);
  */
 void tripleClick(Button2& btn);
 
+//=====================================
+// Settings Management Functions
+//=====================================
+
+/**
+ * @brief Enter settings menu mode
+ * 
+ * Initializes settings menu, loads current values, and displays menu.
+ */
+void enterSettingsMode();
+
+/**
+ * @brief Exit settings menu mode
+ * 
+ * Returns to normal operation mode and clears settings display.
+ */
+void exitSettingsMode();
+
+/**
+ * @brief Get total number of settings
+ * 
+ * @return Number of configurable settings
+ */
+int getSettingsCount();
+
+/**
+ * @brief Get number of value options for a setting
+ * 
+ * @param settingIndex Index of the setting
+ * @return Number of options (including "Disabled")
+ */
+int getSettingValueCount(int settingIndex);
+
+/**
+ * @brief Get current value index for a setting
+ * 
+ * @param settingIndex Index of the setting
+ * @return Current value index
+ */
+int getCurrentValueIndex(int settingIndex);
+
+/**
+ * @brief Save setting value to preferences
+ * 
+ * @param settingIndex Index of the setting
+ * @param valueIndex Index of the selected value
+ */
+void saveSettingValue(int settingIndex, int valueIndex);
+
+//=====================================
+// Event Handlers
+//=====================================
+
 /**
  * @brief Long-press start event handler
  * 
