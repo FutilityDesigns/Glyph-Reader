@@ -29,6 +29,8 @@
 
 #include "led_control.h"
 #include "glyphReader.h"
+#include "preferenceFunctions.h"
+#include "wifiFunctions.h"
 
 //=====================================
 // Global NeoPixel Object
@@ -134,6 +136,18 @@ void setLEDMode(LEDMode mode) {
 //=====================================
 
 /**
+ * Generate random HSV hue excluding red range
+ * Red (error color) occupies roughly 0° (65535) and 0-10° (0-1820)
+ * This function returns a hue in the range that avoids pure red.
+ * return Random hue value (1820-60000) - excludes red, includes orange through violet
+ */
+uint16_t getRandomNonRedHue() {
+  // Red is approximately 0-1820 and 60000-65535 in HSV
+  // Safe range: 1820-60000 (orange, yellow, green, cyan, blue, magenta)
+  return random(1820, 60000);
+}
+
+/**
  * Update animated LED effects
  * Updates animated effects (rainbow, sparkle) at regular intervals while
  * leaving static modes (solid, off, nightlight) unchanged.
@@ -178,7 +192,7 @@ void updateLEDs() {
         if (random(100) < 20) {  // 20% chance for each LED to change
           // Randomly choose color or off
           if (random(100) < 70) {  // 70% chance for color, 30% for off
-            uint32_t color = strip.ColorHSV(random(65536), 255, 255);  // Random hue, full saturation and brightness
+            uint32_t color = strip.ColorHSV(getRandomNonRedHue(), 255, 255);  // Random hue (no red), full saturation and brightness
             strip.setPixelColor(i, strip.gamma32(color));  // Apply gamma correction for better color
           } else {
             strip.setPixelColor(i, 0);  // Turn off (creates twinkling effect)
@@ -346,11 +360,11 @@ void ledSparkle() {
 
 /**
  * Start pulse/breathing effect
- * LEDs smoothly fade in and out in a random color.
+ * LEDs smoothly fade in and out in a random color (excluding red).
  * Creates a calming breathing effect.
  */
 void ledPulse() {
-  pulseColor = strip.ColorHSV(random(65536), 255, 255);  // Random color
+  pulseColor = strip.ColorHSV(getRandomNonRedHue(), 255, 255);  // Random color (no red)
   pulseBrightness = 0;
   pulseDirection = 1;
   setLEDMode(LED_PULSE);
@@ -358,22 +372,22 @@ void ledPulse() {
 
 /**
  * Start color wave effect
- * Wave of color moves through the LED strip.
+ * Wave of color (excluding red) moves through the LED strip.
  * Creates a flowing, dynamic effect.
  */
 void ledColorWave() {
-  waveColor = strip.ColorHSV(random(65536), 255, 255);  // Random color
+  waveColor = strip.ColorHSV(getRandomNonRedHue(), 255, 255);  // Random color (no red)
   wavePosition = 0;
   setLEDMode(LED_COLOR_WAVE);
 }
 
 /**
  * Start comet effect
- * Comet/meteor with trailing tail moves through strip.
+ * Comet/meteor (excluding red) with trailing tail moves through strip.
  * Creates a shooting star effect.
  */
 void ledComet() {
-  cometColor = strip.ColorHSV(random(65536), 255, 255);  // Random color
+  cometColor = strip.ColorHSV(getRandomNonRedHue(), 255, 255);  // Random color (no red)
   cometPosition = 0;
   setLEDMode(LED_COMET);
 }
@@ -416,6 +430,8 @@ void ledRandomEffect() {
 /**
  * Activate nightlight mode
  * Sets LEDs to soft warm white color and switches to LED_NIGHTLIGHT mode.
+ * If location is configured, calculates time until next sunrise for auto-off.
+ * If location is not configured or calculation fails, uses fixed timeout.
  * Used for ambient lighting when nightlight feature is activated via spell.
  * brightness: White channel brightness (0-255, clamped to safe range 10-255)
  */
@@ -425,6 +441,26 @@ void ledNightlight(int brightness) {
   
   // Soft warm white using dedicated white channel
   setLED(0, 0, 0, safeBrightness);
+  nightlightActive = true;
   nightlightOnTime = millis();
+  ledOnTime = 0;  // Don't timeout nightlight
   setLEDMode(LED_NIGHTLIGHT);
+  
+  // Calculate timeout based on sunrise or use fixed timeout
+  unsigned long sunriseTimeout = calculateMillisToNextSunrise(LATITUDE, LONGITUDE, TIMEZONE_OFFSET);
+  
+  if (sunriseTimeout > 0) {
+    // Successfully calculated sunrise time
+    nightlightCalculatedTimeout = sunriseTimeout;
+    LOG_DEBUG("Nightlight will turn off at sunrise (in %lu hours)", sunriseTimeout / 3600000);
+  } else {
+    // Calculation failed or location not configured - use fixed timeout
+    #ifdef ENV_DEV
+    nightlightCalculatedTimeout = 60000;  // 1 minute for testing
+    LOG_DEBUG("Using fixed nightlight timeout: 60 seconds (testing mode)");
+    #else
+    nightlightCalculatedTimeout = 28800000;  // 8 hours
+    LOG_DEBUG("Using fixed nightlight timeout: 8 hours");
+    #endif
+  }
 }

@@ -71,7 +71,6 @@ void click(Button2& btn) {
                     nightlightActive = false;
                     setLEDMode(LED_OFF);
                 } else {
-                    nightlightActive = true;
                     ledNightlight(NIGHTLIGHT_BRIGHTNESS);
                 }
             }

@@ -71,6 +71,9 @@ enum class PrefType {
     PREF_X(NIGHTLIGHT_ON_SPELL,  STRING, "NLon")    \
     PREF_X(NIGHTLIGHT_OFF_SPELL, STRING, "NLoff")   \
     PREF_X(NIGHTLIGHT_BRIGHTNESS, INT,   "NLbright") \
+    PREF_X(LATITUDE,             STRING, "latitude")    \
+    PREF_X(LONGITUDE,            STRING, "longitude")    \
+    PREF_X(TIMEZONE_OFFSET,      INT,    "tzOffset")    \
 
 //=====================================
 // Preference Key Enumeration
@@ -169,5 +172,10 @@ extern int IR_LOSS_TIMEOUT;       ///< Milliseconds before IR loss confirmed (de
 extern String NIGHTLIGHT_ON_SPELL;   ///< Spell name to activate nightlight (e.g., "Illuminate")
 extern String NIGHTLIGHT_OFF_SPELL;  ///< Spell name to deactivate nightlight (e.g., "Dark")
 extern int NIGHTLIGHT_BRIGHTNESS;    ///< Nightlight brightness (0-255, default 150)
+
+// Location Configuration (for sunrise/sunset calculations)
+extern String LATITUDE;           ///< Device latitude in decimal degrees (e.g., "37.7749")
+extern String LONGITUDE;          ///< Device longitude in decimal degrees (e.g., "-122.4194")
+extern int TIMEZONE_OFFSET;       ///< Timezone offset from UTC in seconds (e.g., -28800 for PST)
 
 #endif // PREFERNCE_FUNCTIONS_H

@@ -33,6 +33,9 @@
 #include "wifiFunctions.h"
 #include "glyphReader.h"
 #include "preferenceFunctions.h"
+#include <ArduinoJson.h>
+#include <HTTPClient.h>
+#include <time.h>
 
 // WiFi and MQTT
 WiFiClient espClient;
@@ -91,4 +94,173 @@ void publishSpell(const char* spellName) {
   } else {
     Serial.println("MQTT not connected, cannot publish spell");
   }
+}
+
+
+JsonDocument* fetchJsonFromApi(const String& url, const JsonDocument& filter) {
+    if (WiFi.status() != WL_CONNECTED) {
+        LOG_ALWAYS("WiFi not connected!");
+        return nullptr;
+    }
+
+    HTTPClient http;
+    WiFiClientSecure client;
+    
+    LOG_DEBUG("Fetching URL: %s", url.c_str());
+    
+    // For HTTPS URLs, use insecure mode (skip certificate validation)
+    if (url.startsWith("https://")) {
+        client.setInsecure();  // Skip SSL certificate validation
+        http.begin(client, url);
+    } else {
+        http.begin(url);
+    }
+    
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    int httpCode = http.GET();
+    LOG_DEBUG("HTTP code: %d", httpCode);
+
+    if (httpCode != HTTP_CODE_OK) {
+        LOG_ALWAYS("HTTP request failed with code: %d", httpCode);
+        http.end();
+        return nullptr;
+    }
+
+    JsonDocument* doc = new JsonDocument;
+    
+    DeserializationError err = deserializeJson(*doc, http.getStream(), DeserializationOption::Filter(filter));
+    http.end();
+
+    if (err) {
+        LOG_ALWAYS("Failed to parse JSON: %s", err.c_str());
+        delete doc;
+        return nullptr;
+    }
+    return doc;
+}
+  
+// IPAPI get location data
+ApiData fetchIpApiData() {
+    ApiData result;
+    JsonDocument filter;
+    filter["latitude"] = true;
+    filter["longitude"] = true;
+    filter["utc_offset"] = true;
+
+    // Use HTTP instead of HTTPS - avoids SSL/TLS time sync issues on boot
+    String url = "https://ipapi.co/json/";
+    JsonDocument* doc = fetchJsonFromApi(url, filter);
+
+    if (!doc) {
+        result.error = true;
+        return result;
+    }
+
+    // convert offset to seconds
+    int offset = (*doc)["utc_offset"].as<int>() *36;
+
+    result.strings[0] = (*doc)["latitude"].as<String>();
+    result.strings[1] = (*doc)["longitude"].as<String>();
+    result.ints[0] = offset;
+    result.error = false;
+    
+    delete doc;
+    return result;
+}
+
+/**
+ * Calculate milliseconds until next sunrise
+ * Uses simplified sunrise algorithm based on solar noon calculation.
+ * This is not perfectly accurate but good enough for nightlight automation.
+ * 
+ * Algorithm:
+ * 1. Get current time and date
+ * 2. Calculate solar noon for given longitude
+ * 3. Calculate sunrise offset based on latitude and day of year
+ * 4. Determine if sunrise is today or tomorrow
+ * 
+ * lat: Latitude in decimal degrees (positive = North)
+ * lon: Longitude in decimal degrees (positive = East)
+ * tzOffset: Timezone offset from UTC in seconds
+ * return Milliseconds until next sunrise, or 0 on error
+ */
+unsigned long calculateMillisToNextSunrise(String lat, String lon, int tzOffset) {
+    // Validate inputs
+    if (lat.length() == 0 || lon.length() == 0) {
+        LOG_DEBUG("Missing lat/lon for sunrise calculation");
+        return 0;
+    }
+    
+    float latitude = lat.toFloat();
+    float longitude = lon.toFloat();
+    
+    // Validate reasonable lat/lon ranges
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        LOG_DEBUG("Invalid lat/lon values");
+        return 0;
+    }
+    
+    // Get current UTC time (Unix timestamp in seconds)
+    time_t nowUTC;
+    time(&nowUTC);
+    
+    // Convert to local time
+    time_t nowLocal = nowUTC + tzOffset;
+    struct tm *timeinfo = gmtime(&nowLocal);
+    
+    int dayOfYear = timeinfo->tm_yday + 1;  // Day of year (1-365)
+    int hour = timeinfo->tm_hour;
+    int minute = timeinfo->tm_min;
+    int second = timeinfo->tm_sec;
+    
+    LOG_DEBUG("Current local time: %02d:%02d:%02d, day %d", hour, minute, second, dayOfYear);
+    
+    // Calculate solar declination (simplified)
+    float declinationAngle = 23.45 * sin(2.0 * PI * (284.0 + dayOfYear) / 365.0);
+    float declinationRad = declinationAngle * PI / 180.0;
+    float latitudeRad = latitude * PI / 180.0;
+    
+    // Calculate hour angle for sunrise
+    float cosHourAngle = -tan(latitudeRad) * tan(declinationRad);
+    
+    // Check if sun rises today (polar regions may have no sunrise/sunset)
+    if (cosHourAngle < -1.0 || cosHourAngle > 1.0) {
+        LOG_DEBUG("No sunrise today (polar region?)");
+        return 0;  // Sun doesn't rise or set today
+    }
+    
+    float hourAngle = acos(cosHourAngle) * 180.0 / PI;
+    
+    // Calculate sunrise time in UTC hours
+    // Solar noon occurs at 12:00 UTC + longitude offset
+    float utcNoon = 12.0 - (longitude / 15.0);
+    float sunriseUTC = utcNoon - (hourAngle / 15.0);
+    
+    // Convert to local time by adding timezone offset in hours
+    float sunriseLocal = sunriseUTC + (tzOffset / 3600.0);
+    
+    // Normalize to 0-24 range
+    while (sunriseLocal < 0) sunriseLocal += 24.0;
+    while (sunriseLocal >= 24) sunriseLocal -= 24.0;
+    
+    // Convert to hours and minutes
+    int sunriseHourInt = (int)sunriseLocal;
+    int sunriseMinInt = (int)((sunriseLocal - sunriseHourInt) * 60.0);
+    
+    // Calculate seconds until sunrise today
+    int currentSeconds = hour * 3600 + minute * 60 + second;
+    int sunriseSeconds = sunriseHourInt * 3600 + sunriseMinInt * 60;
+    int secondsUntil = sunriseSeconds - currentSeconds;
+    
+    // If sunrise already passed today, calculate for tomorrow
+    if (secondsUntil < 0) {
+        secondsUntil += 86400;  // Add 24 hours
+    }
+    
+    LOG_DEBUG("Next sunrise in %d hours, %d minutes (at %02d:%02d local time)",
+              secondsUntil / 3600, (secondsUntil % 3600) / 60, 
+              sunriseHourInt, sunriseMinInt);
+    
+    // Convert to milliseconds
+    return (unsigned long)secondsUntil * 1000UL;
 }

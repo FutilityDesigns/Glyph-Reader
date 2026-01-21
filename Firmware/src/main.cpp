@@ -68,8 +68,13 @@ const unsigned long screenTimeout = 60000;      // Turn off screen after 60 seco
 unsigned long ledOnTime = 0;                    // Timestamp when LED effect started
 const unsigned long ledeffectTimeout = 5000;    // Turn off LEDs after 5 seconds of inactivity
 unsigned long nightlightOnTime = 0;             // Timestamp when nightlight mode started
+unsigned long nightlightCalculatedTimeout = 0;  // Calculated timeout (sunrise-based or fixed)
 //const unsigned long nightlightTimeout = 28800000; // Nightlight auto-off after 8 hours
-const unsigned long nightlightTimeout = 60000; // Nightlight auto-off after 10 seconds (for testing)
+#ifdef ENV_DEV
+const unsigned long nightlightTimeout = 60000; // Nightlight auto-off after 60 seconds (for testing)
+#elif defined ENV_PROD
+const unsigned long nightlightTimeout = 28800000; // Nightlight auto-off after 8 hours
+#endif
 
 // System state flags
 bool backlightStateOn = false;    // Current backlight on/off state
@@ -209,7 +214,55 @@ void setup() {
     updateSetupDisplay(step, "WiFi Manager", "pass");
     
     //-----------------------------------
-    // Step 6a: mDNS Responder
+    // Step 6a: Configure NTP Time Sync
+    //-----------------------------------
+    // Configure NTP time synchronization for accurate date/time
+    // This is critical for sunrise/sunset calculations
+    LOG_DEBUG("Configuring NTP time sync...");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");  // GMT+0, will use timezone offset from preferences
+    
+    // Wait briefly for time to sync
+    int retries = 0;
+    while (time(nullptr) < 100000 && retries < 20) {  // Valid time is > 100000 (past Jan 1970)
+      delay(100);
+      retries++;
+    }
+    
+    if (time(nullptr) > 100000) {
+      LOG_DEBUG("Time synchronized successfully");
+    } else {
+      LOG_ALWAYS("Warning: NTP time sync may have failed");
+    }
+    
+    //-----------------------------------
+    // Step 6b: Fetch Location Data (if not configured)
+    //-----------------------------------
+    // If latitude/longitude not set, fetch from ipapi.co
+    if (LATITUDE.length() == 0 || LONGITUDE.length() == 0) {
+      LOG_DEBUG("Location not configured - fetching from ipapi.co...");
+      ApiData locationData = fetchIpApiData();
+      
+      if (!locationData.error) {
+        // Save fetched location to preferences
+        LATITUDE = locationData.strings[0];
+        LONGITUDE = locationData.strings[1];
+        TIMEZONE_OFFSET = locationData.ints[0];
+        
+        setPref(PrefKey::LATITUDE, LATITUDE);
+        setPref(PrefKey::LONGITUDE, LONGITUDE);
+        setPref(PrefKey::TIMEZONE_OFFSET, TIMEZONE_OFFSET);
+        
+        LOG_DEBUG("Location configured: %s, %s (UTC%+d)", 
+                  LATITUDE.c_str(), LONGITUDE.c_str(), TIMEZONE_OFFSET / 3600);
+      } else {
+        LOG_ALWAYS("Failed to fetch location from ipapi.co");
+      }
+    } else {
+      LOG_DEBUG("Location already configured: %s, %s", LATITUDE.c_str(), LONGITUDE.c_str());
+    }
+    
+    //-----------------------------------
+    // Step 6c: mDNS Responder
     //-----------------------------------
     // Configure mDNS for easy access via http://glyphreader.local
     if (!MDNS.begin("glyphreader")) {
@@ -449,8 +502,9 @@ void loop() {
   }
 
   // Check if the nightlight mode needs to be turned off
-  if (nightlightActive && (millis() - nightlightOnTime >= nightlightTimeout)) {
-    // Turn off nightlight after configured duration
+  if (nightlightActive && nightlightCalculatedTimeout > 0 && 
+      (millis() - nightlightOnTime >= nightlightCalculatedTimeout)) {
+    // Turn off nightlight after calculated duration (sunrise or fixed timeout)
     nightlightActive = false;
     setLEDMode(LED_OFF);
     LOG_DEBUG("Nightlight mode timed out - LEDs turned off");

@@ -72,4 +72,32 @@ void reconnectMQTT();
  */
 void publishSpell(const char* spellName);
 
+struct ApiData {
+    int ints[4];
+    float floats[2];
+    String strings[4];
+    int code;   // HTTP status code
+    bool error; // To check if data is valid
+  
+  // Constructor with an initializer list
+    // ApiData() : strings(""), string2(""), float1(0.0), float2(0.0), error(false) {}
+};
+
+/**
+ * Fetch location data from ipapi.co
+ * Uses current IP address to determine location.
+ * return ApiData with latitude (strings[0]), longitude (strings[1]), and UTC offset in seconds (ints[0])
+ */
+ApiData fetchIpApiData();
+
+/**
+ * Calculate milliseconds until next sunrise
+ * Uses simplified sunrise calculation algorithm.
+ * lat: Latitude in decimal degrees (e.g., "37.7749")
+ * lon: Longitude in decimal degrees (e.g., "-122.4194")
+ * tzOffset: Timezone offset from UTC in seconds (e.g., -28800 for PST)
+ * return Milliseconds until next sunrise, or 0 if calculation fails
+ */
+unsigned long calculateMillisToNextSunrise(String lat, String lon, int tzOffset);
+
 #endif // MQTT_FUNCTIONS_H

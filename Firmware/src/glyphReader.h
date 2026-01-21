@@ -124,6 +124,14 @@ extern bool nightlightActive;
 extern unsigned long nightlightOnTime;
 
 /**
+ * Calculated nightlight timeout in milliseconds
+ * When nightlight is activated, this is set to either:
+ * - Milliseconds until next sunrise (if location configured)
+ * - Fixed timeout value (fallback if sunrise calculation fails)
+ */
+extern unsigned long nightlightCalculatedTimeout;
+
+/**
  * Settings Menu Variables
  * Used to manage the settings menu
  * and allow direct user settings changes

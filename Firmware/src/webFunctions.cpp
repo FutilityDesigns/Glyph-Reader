@@ -67,11 +67,13 @@ char mqttPortBuffer[6] = "";
 char mqttTopicBuffer[50] = "";
 
 //Custom Text Parameters to explain each variable
-WiFiManagerParameter custom_Header_Text("<h1>Wand Commander Settings</h1>");
+WiFiManagerParameter custom_Header_Text("<h1>Glyph Reader Settings</h1>");
 WiFiManagerParameter custom_MQTT_Text("<p>Enter your MQTT Broker settings below:</p>");
 WiFiManagerParameter custom_Topic_Text("<p>MQTT Topic to publish recognized spells</p>");
 WiFiManagerParameter custom_Nightlight_Header_Text("<h2>Nightlight Configuration</h2>");
 WiFiManagerParameter custom_Nightlight_Text("<p>Select spells to turn nightlight on/off. When active, LEDs return to nightlight instead of turning off.</p>");
+WiFiManagerParameter custom_Location_Header_Text("<h2>Location Override</h2>");
+WiFiManagerParameter custom_Location_Text("<p>Override auto-detected location for sunrise/sunset calculations. Leave blank to use auto-detected location.</p>");
 WiFiManagerParameter custom_Tuning_Header_Text("<h2>Tuning Parameters for Spell Detection</h2>");
 WiFiManagerParameter custom_Start_Movement_text("<p>Minimum pixels to consider motion to start tracking</p>");
 WiFiManagerParameter custom_stillness_text("<p>Maximum Pixels to consider the wand stationary and initiate or end the spell tracking</p>");
@@ -84,6 +86,16 @@ WiFiManagerParameter custom_IR_Loss_Timeout_text("<p>Max time tracking can be lo
 WiFiManagerParameter custom_mqtt_server("mqtt_server", "MQTT Broker Address", mqttServerBuffer, 20);
 WiFiManagerParameter custom_mqtt_port("mqtt_port", "MQTT Broker Port", mqttPortBuffer, 6, "1883");
 WiFiManagerParameter custom_mqtt_topic("mqtt_topic", "MQTT Topic", mqttTopicBuffer, 50);
+
+// Buffers for location override
+char latitudeBuffer[20] = "";
+char longitudeBuffer[20] = "";
+char timezoneBuffer[10] = "";
+
+// Custom Parameter Fields for Location Override
+WiFiManagerParameter custom_latitude("latitude", "Latitude (decimal degrees)", latitudeBuffer, 20);
+WiFiManagerParameter custom_longitude("longitude", "Longitude (decimal degrees)", longitudeBuffer, 20);
+WiFiManagerParameter custom_timezone("timezone", "Timezone Offset (hours from UTC)", timezoneBuffer, 10);
 
 /**
  * Generate HTML for numeric parameter adjuster with +/- buttons
@@ -269,6 +281,15 @@ void loadCustomParameters() {
     custom_mqtt_server.setValue(mqttServerBuffer, 20);
     custom_mqtt_port.setValue(mqttPortBuffer, 6);
     custom_mqtt_topic.setValue(mqttTopicBuffer, 50);
+    
+    // Populate location buffers with current values
+    strcpy(latitudeBuffer, LATITUDE.c_str());
+    strcpy(longitudeBuffer, LONGITUDE.c_str());
+    snprintf(timezoneBuffer, sizeof(timezoneBuffer), "%d", TIMEZONE_OFFSET / 3600);  // Convert seconds to hours for display
+    custom_latitude.setValue(latitudeBuffer, 20);
+    custom_longitude.setValue(longitudeBuffer, 20);
+    custom_timezone.setValue(timezoneBuffer, 10);
+    
     generateAdjusters();
 
 }
@@ -332,6 +353,26 @@ void saveCustomParameters() {
     if (newNightlightOff != NIGHTLIGHT_OFF_SPELL) {
         NIGHTLIGHT_OFF_SPELL = newNightlightOff;
         setPref(PrefKey::NIGHTLIGHT_OFF_SPELL, NIGHTLIGHT_OFF_SPELL);
+    }
+    
+    // Get location settings from form
+    String newLatitude = wm.server->arg("latitude");
+    String newLongitude = wm.server->arg("longitude");
+    int newTimezoneHours = wm.server->arg("timezone").toInt();
+    int newTimezoneSeconds = newTimezoneHours * 3600;  // Convert hours to seconds
+    
+    // Save location settings (can be empty to use auto-detected location)
+    if (newLatitude != LATITUDE) {
+        LATITUDE = newLatitude;
+        setPref(PrefKey::LATITUDE, LATITUDE);
+    }
+    if (newLongitude != LONGITUDE) {
+        LONGITUDE = newLongitude;
+        setPref(PrefKey::LONGITUDE, LONGITUDE);
+    }
+    if (newTimezoneSeconds != TIMEZONE_OFFSET) {
+        TIMEZONE_OFFSET = newTimezoneSeconds;
+        setPref(PrefKey::TIMEZONE_OFFSET, TIMEZONE_OFFSET);
     }
 
     // Get tuning parameters from form
@@ -439,7 +480,7 @@ bool initWM() {
     loadCustomParameters();
 
     // Set WifiManager Title
-    wm.setTitle("Wand Commander Configuration");
+    wm.setTitle("Glyph Reader Configuration");
     wm.setClass("invert");
 
     // Add Custom Fields
@@ -453,6 +494,11 @@ bool initWM() {
     wm.addParameter(&custom_Nightlight_Text);
     wm.addParameter(custom_Nightlight_On_Dropdown);
     wm.addParameter(custom_Nightlight_Off_Dropdown);
+    wm.addParameter(&custom_Location_Header_Text);
+    wm.addParameter(&custom_Location_Text);
+    wm.addParameter(&custom_latitude);
+    wm.addParameter(&custom_longitude);
+    wm.addParameter(&custom_timezone);
     wm.addParameter(&custom_Tuning_Header_Text);
     wm.addParameter(&custom_stillness_text);
     wm.addParameter(custom_Stillness_adjust);

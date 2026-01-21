@@ -410,6 +410,8 @@ void readCameraData() {
         stablePosition = {currentX, currentY, currentTime};  // Record initial position
         stillnessStartTime = currentTime;  // Start stillness timer
         currentState = READY;  // Move to READY state
+        readyToTrack = false;  // Reset ready flag - user must achieve stillness first
+        ledOnTime = 0;  // Cancel any active LED effect timeout (prevents old timers from interrupting tracking)
         ledSolid("yellow");  // Yellow = detected but not ready yet
         backlightOn();  // Turn on screen for visual feedback
         screenOnTime = millis();  // Reset screen timeout
@@ -468,7 +470,11 @@ void readCameraData() {
           Serial.println("STATE: Ready timeout");
           currentState = WAITING_FOR_IR;
           readyToTrack = false;
-          ledOff();
+          if (nightlightActive) {
+            ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+          } else {
+            ledOff();
+          }
           drawIRPoint(-1, -1, false);  // Clear IR point from display
         }
         break;
@@ -609,26 +615,21 @@ void readCameraData() {
           
           if (isToggleMode && (isNightlightOnSpell || isNightlightOffSpell)) {
             // Toggle mode - same spell turns on and off
-            nightlightActive = !nightlightActive;
             if (nightlightActive) {
-              ledNightlight(NIGHTLIGHT_BRIGHTNESS);
-              nightlightOnTime = millis();
-              LOG_DEBUG("Nightlight toggled ON");
-            } else {
+              nightlightActive = false;
               ledOff();
               LOG_DEBUG("Nightlight toggled OFF");
+            } else {
+              ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+              LOG_DEBUG("Nightlight toggled ON");
             }
             displaySpellName(bestSpell);
             publishSpell(bestSpell);
-            ledOnTime = 0;  // Don't timeout
           } else if (isNightlightOnSpell) {
             // Turn on nightlight mode
-            nightlightActive = true;
             ledNightlight(NIGHTLIGHT_BRIGHTNESS);
-            nightlightOnTime = millis();
             displaySpellName(bestSpell);
             publishSpell(bestSpell);
-            ledOnTime = 0;  // Don't timeout nightlight
             LOG_DEBUG("Nightlight turned ON");
           } else if (isNightlightOffSpell) {
             // Turn off nightlight mode
@@ -657,7 +658,6 @@ void readCameraData() {
             // Show spell feedback
             displaySpellName(bestSpell);
             publishSpell(bestSpell);
-            ledOnTime = 0;  // Stay in nightlight mode
           } else {
             // Regular spell - publish to MQTT and show random effect
             publishSpell(bestSpell);
@@ -693,7 +693,11 @@ void readCameraData() {
       currentState = WAITING_FOR_IR;
       currentTrajectory.clear();
       readyToTrack = false;
-      ledOff();
+      if (nightlightActive) {
+        ledNightlight(NIGHTLIGHT_BRIGHTNESS);
+      } else {
+        ledOff();
+      }
       clearDisplay();  // Clear entire trail from display
       lastX = -1;
       lastY = -1;

@@ -45,6 +45,9 @@ int IR_LOSS_TIMEOUT;
 String NIGHTLIGHT_ON_SPELL;
 String NIGHTLIGHT_OFF_SPELL;
 int NIGHTLIGHT_BRIGHTNESS;
+String LATITUDE;
+String LONGITUDE;
+int TIMEZONE_OFFSET;
 
 // Define preference specifications
 static const PrefSpec PREF_SPECS[] = {
@@ -228,4 +231,9 @@ void loadPreferences() {
     NIGHTLIGHT_OFF_SPELL = getPrefString(PrefKey::NIGHTLIGHT_OFF_SPELL, "");  // No default spell    NIGHTLIGHT_BRIGHTNESS = getPrefInt(PrefKey::NIGHTLIGHT_BRIGHTNESS, 150);  // Default medium brightness}
     
     NIGHTLIGHT_BRIGHTNESS = getPrefInt(PrefKey::NIGHTLIGHT_BRIGHTNESS, 150);  // Default medium brightness
+    
+    // Location settings (empty = not configured, will fetch from ipapi.co on boot)
+    LATITUDE = getPrefString(PrefKey::LATITUDE, "");
+    LONGITUDE = getPrefString(PrefKey::LONGITUDE, "");
+    TIMEZONE_OFFSET = getPrefInt(PrefKey::TIMEZONE_OFFSET, 0);
 }
