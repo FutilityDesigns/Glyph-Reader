@@ -14,10 +14,10 @@ A magical wand system powered by ESP32-S3 with gesture recognition and spell cas
 1. All boards are still being verified, designs should not be ordered until this line is removed
 2. Complete Bill of Materials for All boards still needs to be generated
 3. Enclosures and wand designs still need to be finalized and included
-4. Functionality for the built in buttons needs to be programmed
+4. ~~Functionality for the built in buttons needs to be programmed~~
 5. DIY version schematics need to be drawn for those wishing to build their own without the Custom Glyph Reader PCBs
-6. Designs need to be submitted to PCB assembly services for purchase as assembled units. Alternatively some assembled boards may be availible for purchse directly
-7. ~~Some improvement still is required on the matching functions, false matches still happen more commonly than desired~~ - Matching greatly improved
+6. ~~Some improvement still is required on the matching functions, false matches still happen more commonly than desired~~ - Matching greatly improved
+7. User Docs still need to be finalized
 
 
 ## Getting Started
@@ -56,7 +56,7 @@ If you wish to connect the device to home automation, you must configure MQTT on
 5. When a spell is identified a message will be published with the built in spell name as the payload
 
 ### Configuring Night Light
-There are two drop downs that allow setting specific spells to directly trigger the night light to turn on or off. These spells will no longer display their spell image, and will instead show Night Light status screens. 
+There are two drop downs that allow setting specific spells to directly trigger the night light to turn on or off. 
 
 ### Tuning the gesture Tracking
 There are some variables that can be adjusted to tune the gesture detection and tracking. These are also in the setup page of the webportal at http://glyphreader.local
@@ -76,7 +76,7 @@ Or to assemble your own:
 - ESP32-S3 DevKit
 - GC9A01A Circular TFT Display (240x240)
 - DFRobot SEN0158 IR Positioning Camera
-- SD Card Reader (optional)
+- SD Card Reader (optional but recommended)
 - NeoPixel LEDs (optional)
 
 ### Wands

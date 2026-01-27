@@ -57,14 +57,34 @@
 #include "preferenceFunctions.h"
 #include "glyphReader.h"
 #include "spell_patterns.h"
+#include "customSpellFunctions.h"
+#include "customSpellFunctions.h"
+#include "sdFunctions.h"
+#include <cctype>
 
 // WiFiManager instance
 WiFiManager wm;
+
+// Flags for background saving
+bool pendingSaveToPreferences = false;
+bool pendingSaveCustomSpellsToSD = false;
+
+// Storage for custom spell renames (pending SD save)
+struct CustomSpellRename {
+    String oldName;
+    String newName;
+};
+std::vector<CustomSpellRename> pendingSpellRenames;
 
 // Buffers for stored values
 char mqttServerBuffer[20] = "";
 char mqttPortBuffer[6] = "";
 char mqttTopicBuffer[50] = "";
+
+// Buffers for location override
+char latitudeBuffer[20] = "";
+char longitudeBuffer[20] = "";
+char timezoneBuffer[10] = "";
 
 //Custom Text Parameters to explain each variable
 WiFiManagerParameter custom_Header_Text("<h1>Glyph Reader Settings</h1>");
@@ -73,47 +93,21 @@ WiFiManagerParameter custom_Topic_Text("<p>MQTT Topic to publish recognized spel
 WiFiManagerParameter custom_Nightlight_Header_Text("<h2>Nightlight Configuration</h2>");
 WiFiManagerParameter custom_Nightlight_Text("<p>Select spells to turn nightlight on/off. When active, LEDs return to nightlight instead of turning off.</p>");
 WiFiManagerParameter custom_Location_Header_Text("<h2>Location Override</h2>");
-WiFiManagerParameter custom_Location_Text("<p>Override auto-detected location for sunrise/sunset calculations. Leave blank to use auto-detected location.</p>");
+WiFiManagerParameter custom_Location_Text("<p>Override auto-detected location for sunrise/sunset calculations.</p>");
+WiFiManagerParameter custom_Sound_Header_Text("<h2>Sound Settings</h2>");
+WiFiManagerParameter custom_Sound_Text("<p>Enable or disable sound effects for spell detection and system events.</p>");
 WiFiManagerParameter custom_Tuning_Header_Text("<h2>Tuning Parameters for Spell Detection</h2>");
 WiFiManagerParameter custom_Start_Movement_text("<p>Minimum pixels to consider motion to start tracking</p>");
-WiFiManagerParameter custom_stillness_text("<p>Maximum Pixels to consider the wand stationary and initiate or end the spell tracking</p>");
+WiFiManagerParameter custom_stillness_text("<p>Maximum Pixels to consider the wand stationary and initiate the spell tracking</p>");
 WiFiManagerParameter custom_Start_Stillness_Time_text("<p>How long the wand needs to be still to initiate the device</p>");
 WiFiManagerParameter custom_End_STillness_Time_text("<p>How long the wand needs to remain still to end tracking</p>");
 WiFiManagerParameter custom_Max_Gesture_Time_text("<p>Maximum time to track a spell before timing out</p>");
 WiFiManagerParameter custom_IR_Loss_Timeout_text("<p>Max time tracking can be lost before tracking is ended</p>");
+WiFiManagerParameter custom_User_Spell_Names_Header_Text("<h2>Custom Spell Names</h2>");
+WiFiManagerParameter custom_User_Spell_Names_Text("<p>Rename custom spells recorded via the device.</p>");
 
-// Custom Parameter Fields for MQTT Settings
-WiFiManagerParameter custom_mqtt_server("mqtt_server", "MQTT Broker Address", mqttServerBuffer, 20);
-WiFiManagerParameter custom_mqtt_port("mqtt_port", "MQTT Broker Port", mqttPortBuffer, 6, "1883");
-WiFiManagerParameter custom_mqtt_topic("mqtt_topic", "MQTT Topic", mqttTopicBuffer, 50);
 
-// Buffers for location override
-char latitudeBuffer[20] = "";
-char longitudeBuffer[20] = "";
-char timezoneBuffer[10] = "";
 
-// Custom Parameter Fields for Location Override
-WiFiManagerParameter custom_latitude("latitude", "Latitude (decimal degrees)", latitudeBuffer, 20);
-WiFiManagerParameter custom_longitude("longitude", "Longitude (decimal degrees)", longitudeBuffer, 20);
-WiFiManagerParameter custom_timezone("timezone", "Timezone Offset (hours from UTC)", timezoneBuffer, 10);
-
-/**
- * Generate HTML for numeric parameter adjuster with +/- buttons
- * settingName: Display name and field ID for the parameter
- * startValue: Current value to display
- * stepValue: Amount to increment/decrement per button click
- * return String containing complete HTML div with buttons, input, and JavaScript
- * Creates an interactive numeric control with:
- * - Decrement button (-) in red
- * - Numeric input field (center, user can also type)
- * - Increment button (+) in green
- * - JavaScript adjust() function (added once)
- * JAVASCRIPT:
- * - adjust(id, step) function modifies input value
- * - Static flag prevents duplicate script blocks
- * - Client-side interactivity (no page reload)
- * Called from generateAdjusters() for each tuning parameter.
- */
 String generateAdjusterHTML(const char* settingName, int startValue, int stepValue) {
   String html = "<div style='margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 5px;'>";
   html += "<label style='display: block; margin-bottom: 5px; font-weight: bold;'>" + String(settingName) + "</label>";
@@ -149,44 +143,6 @@ String generateAdjusterHTML(const char* settingName, int startValue, int stepVal
   return html;
 }
 
-// Declare Strings but don't initialize yet (values aren't loaded from prefs yet)
-String movementThresholdHTML;
-String stillnessThresholdHTML;
-String readyStillnessTimeHTML;
-String endStillnessTimeHTML;
-String gestureTimeoutHTML;
-String irLossTimeoutHTML;
-String nightlightOnHTML;
-String nightlightOffHTML;
-
-// Declare pointers to WiFiManagerParameters (will be created later)
-WiFiManagerParameter* custom_Movement_adjust = nullptr;
-WiFiManagerParameter* custom_Stillness_adjust = nullptr;
-WiFiManagerParameter* custom_Ready_Stillness_adjust = nullptr;
-WiFiManagerParameter* custom_End_Stillness_adjust = nullptr;
-WiFiManagerParameter* custom_Gesture_Timeout_adjust = nullptr;
-WiFiManagerParameter* custom_IR_Loss_Timeout_adjust = nullptr;
-WiFiManagerParameter* custom_Nightlight_On_Dropdown = nullptr;
-WiFiManagerParameter* custom_Nightlight_Off_Dropdown = nullptr;
-
-/**
- * Generate HTML dropdown menu populated with spell names
- * settingName: Label and field name for the dropdown
- * currentValue: Currently selected spell name (will be marked selected)
- * return String containing complete HTML div with label and <select> element
- * Creates dropdown menu with:
- * - "-- None --" option (empty value for disabling feature)
- * - One <option> for each spell in spellPatterns vector
- * - Currently selected spell pre-selected in UI
- * USAGE:
- * - Nightlight control: User selects which spell activates/deactivates nightlight
- * - Future features: Could be used for other spell-triggered actions
- * STYLING:
- * - Full width with padding for touch-friendly interface
- * - Border and rounded corners for consistency
- * - Label positioned above dropdown
- * Called from generateAdjusters() to create nightlight spell selectors.
- */
 String generateSpellDropdown(const char* settingName, const String& currentValue) {
   LOG_DEBUG("Generating dropdown for %s, spellPatterns.size()=%d", settingName, spellPatterns.size());
   
@@ -210,71 +166,71 @@ String generateSpellDropdown(const char* settingName, const String& currentValue
   return html;
 }
 
-/**
- * Generate all adjuster parameter HTML from current preferences
- * Creates HTML strings for all tuning parameters and nightlight dropdowns
- * using current values from global preference variables. Cleans up old
- * WiFiManagerParameter objects and creates new ones with fresh HTML.
- * PARAMETERS GENERATED:
- * - Movement Threshold (step: 1 pixel)
- * - Stillness Threshold (step: 1 pixel)
- * - Ready Stillness Time (step: 50ms)
- * - End Stillness Time (step: 50ms)
- * - Gesture Timeout (step: 500ms)
- * - IR Loss Timeout (step: 50ms)
- * - Nightlight On Spell (dropdown)
- * - Nightlight Off Spell (dropdown)
- * Called from loadCustomParameters() before adding parameters to WiFiManager.
- */
+// Custom Parameter Fields for MQTT Settings
+WiFiManagerParameter custom_mqtt_server("mqtt_server", "MQTT Broker Address", mqttServerBuffer, 20);
+WiFiManagerParameter custom_mqtt_port("mqtt_port", "MQTT Broker Port", mqttPortBuffer, 6, "1883");
+WiFiManagerParameter custom_mqtt_topic("mqtt_topic", "MQTT Topic", mqttTopicBuffer, 50);
+
+// Custom Parameter Fields for Location Override
+WiFiManagerParameter custom_latitude("latitude", "Latitude (decimal degrees)", latitudeBuffer, 20);
+WiFiManagerParameter custom_longitude("longitude", "Longitude (decimal degrees)", longitudeBuffer, 20);
+WiFiManagerParameter custom_timezone("timezone", "Timezone Offset (hours from UTC)", timezoneBuffer, 10);
+
+// Generate Adjusters
+String movementThresholdHTML = generateAdjusterHTML("Movement Threshold", MOVEMENT_THRESHOLD, 1);
+String stillnessThresholdHTML = generateAdjusterHTML("Stillness Threshold", STILLNESS_THRESHOLD, 1);
+String readyStillnessTimeHTML = generateAdjusterHTML("Ready Stillness Time", READY_STILLNESS_TIME, 50);
+String gestureTimeoutHTML = generateAdjusterHTML("Gesture Timeout", GESTURE_TIMEOUT, 500);
+String irLossTimeoutHTML = generateAdjusterHTML("IR Loss Timeout", IR_LOSS_TIMEOUT, 50);
+
+// Declare dropdown strings - will be populated by generateDropdowns() before WiFiManager uses them
+String nightlightOnHTML;
+String nightlightOffHTML;
+String nightlightRaiseHTML;
+String nightlightLowerHTML;
+
+WiFiManagerParameter custom_Movement_thresh_adjust(movementThresholdHTML.c_str());
+WiFiManagerParameter custom_Stillness_thresh_adjust(stillnessThresholdHTML.c_str());
+WiFiManagerParameter custom_Stillness_time_adjust(readyStillnessTimeHTML.c_str());
+WiFiManagerParameter custom_Gesture_timout_adjust(gestureTimeoutHTML.c_str());
+WiFiManagerParameter custom_IR_Loss_timeout_adjust(irLossTimeoutHTML.c_str());
+WiFiManagerParameter custom_Nightlight_On_Dropdown(nightlightOnHTML.c_str());
+WiFiManagerParameter custom_Nightlight_Off_Dropdown(nightlightOffHTML.c_str());
+WiFiManagerParameter custom_Nightlight_Raise_Dropdown(nightlightRaiseHTML.c_str());
+WiFiManagerParameter custom_Nightlight_Lower_Dropdown(nightlightLowerHTML.c_str());
+
+// Sound settings checkbox (custom HTML will be set in loadCustomParameters)
+WiFiManagerParameter custom_sound_enabled("sound_enabled", "Enable Sound Effects", "T", 2, "type=\"checkbox\"", WFM_LABEL_AFTER);
+
+WiFiManagerParameter* showAdvOptsBtn = new WiFiManagerParameter("<button id=\"showadvopts\">Show Advanced Options</button>");
+
+
+// Custom spell name fields
+static std::vector<WiFiManagerParameter*> customSpellNameParams;
+// Persistent labels for custom spell parameters (avoid temporary c_str() usage)
+static std::vector<String> customSpellParamLabels;
+// Store original spell names corresponding to each generated field
+static std::vector<String> customSpellOriginalNames;
+
 void generateAdjusters(){
-    // Generate HTML with current preference values
-    movementThresholdHTML = generateAdjusterHTML("Movement Threshold", MOVEMENT_THRESHOLD, 1);
-    stillnessThresholdHTML = generateAdjusterHTML("Stillness Threshold", STILLNESS_THRESHOLD, 1);
-    readyStillnessTimeHTML = generateAdjusterHTML("Ready Stillness Time", READY_STILLNESS_TIME, 50);
-    endStillnessTimeHTML = generateAdjusterHTML("End Stillness Time", END_STILLNESS_TIME, 50);
-    gestureTimeoutHTML = generateAdjusterHTML("Gesture Timeout", GESTURE_TIMEOUT, 500);
-    irLossTimeoutHTML = generateAdjusterHTML("IR Loss Timeout", IR_LOSS_TIMEOUT, 50);
-    
-    // Generate nightlight spell dropdowns (use global strings so they persist)
-    nightlightOnHTML = generateSpellDropdown("Nightlight On Spell", NIGHTLIGHT_ON_SPELL);
-    nightlightOffHTML = generateSpellDropdown("Nightlight Off Spell", NIGHTLIGHT_OFF_SPELL);
-    
-    // Clean up old parameters if they exist
-    if (custom_Movement_adjust) delete custom_Movement_adjust;
-    if (custom_Stillness_adjust) delete custom_Stillness_adjust;
-    if (custom_Ready_Stillness_adjust) delete custom_Ready_Stillness_adjust;
-    if (custom_End_Stillness_adjust) delete custom_End_Stillness_adjust;
-    if (custom_Gesture_Timeout_adjust) delete custom_Gesture_Timeout_adjust;
-    if (custom_IR_Loss_Timeout_adjust) delete custom_IR_Loss_Timeout_adjust;
-    if (custom_Nightlight_On_Dropdown) delete custom_Nightlight_On_Dropdown;
-    if (custom_Nightlight_Off_Dropdown) delete custom_Nightlight_Off_Dropdown;
-    
-    // Create new parameters with current values
-    custom_Movement_adjust = new WiFiManagerParameter(movementThresholdHTML.c_str());
-    custom_Stillness_adjust = new WiFiManagerParameter(stillnessThresholdHTML.c_str());
-    custom_Ready_Stillness_adjust = new WiFiManagerParameter(readyStillnessTimeHTML.c_str());
-    custom_End_Stillness_adjust = new WiFiManagerParameter(endStillnessTimeHTML.c_str());
-    custom_Gesture_Timeout_adjust = new WiFiManagerParameter(gestureTimeoutHTML.c_str());
-    custom_IR_Loss_Timeout_adjust = new WiFiManagerParameter(irLossTimeoutHTML.c_str());
-    custom_Nightlight_On_Dropdown = new WiFiManagerParameter(nightlightOnHTML.c_str());
-    custom_Nightlight_Off_Dropdown = new WiFiManagerParameter(nightlightOffHTML.c_str());
+    // Generate HTML with current preference values - populate strings FIRST
+    movementThresholdHTML = generateAdjusterHTML("Movement Threshold (pixels)", MOVEMENT_THRESHOLD, 1);
+    stillnessThresholdHTML = generateAdjusterHTML("Stillness Threshold (pixels)", STILLNESS_THRESHOLD, 1);
+    readyStillnessTimeHTML = generateAdjusterHTML("Ready Stillness Time (milliseconds)", READY_STILLNESS_TIME, 50);
+    gestureTimeoutHTML = generateAdjusterHTML("Gesture Timeout (milliseconds)", GESTURE_TIMEOUT, 500);
+    irLossTimeoutHTML = generateAdjusterHTML("IR Loss Timeout (milliseconds)", IR_LOSS_TIMEOUT, 50);
 }
 
-/**
- * Load current preference values into web form fields
- * Populates all WiFiManager form fields with current values from NVS:
- * - MQTT settings copied into char buffers
- * - Buffers assigned to WiFiManagerParameter objects
- * - Adjuster HTML generated with current tuning parameter values
- * WORKFLOW:
- * 1. loadPreferences() reads all NVS values into global variables
- * 2. MQTT values copied to char buffers (required by WiFiManager)
- * 3. setValue() updates WiFiManagerParameter display values
- * 4. generateAdjusters() creates HTML for numeric controls
- * Called from initWM() before starting the configuration portal.
- */
-void loadCustomParameters() {
-    loadPreferences();
+void generateDropdowns(){
+    nightlightOnHTML = generateSpellDropdown("Nightlight On Spell", NIGHTLIGHT_ON_SPELL);
+    nightlightOffHTML = generateSpellDropdown("Nightlight Off Spell", NIGHTLIGHT_OFF_SPELL);
+    nightlightRaiseHTML = generateSpellDropdown("Nightlight Raise Spell", NIGHTLIGHT_RAISE_SPELL);
+    nightlightLowerHTML = generateSpellDropdown("Nightlight Lower Spell", NIGHTLIGHT_LOWER_SPELL);
+}
+
+
+// Load Settings from Preferences
+void LoadCustomParameters() {
     strcpy(mqttServerBuffer, MQTT_HOST.c_str());
     snprintf(mqttPortBuffer, sizeof(mqttPortBuffer), "%d", MQTT_PORT);
     strcpy(mqttTopicBuffer, MQTT_TOPIC.c_str());
@@ -290,200 +246,347 @@ void loadCustomParameters() {
     custom_longitude.setValue(longitudeBuffer, 20);
     custom_timezone.setValue(timezoneBuffer, 10);
     
+    // Recreate checkbox with correct checked state
+    // WiFiManager requires "checked" in the custom HTML string
+    if (SOUND_ENABLED) {
+        new (&custom_sound_enabled) WiFiManagerParameter("sound_enabled", "Enable Sound Effects", "T", 2, "type=\"checkbox\" checked", WFM_LABEL_AFTER);
+    } else {
+        new (&custom_sound_enabled) WiFiManagerParameter("sound_enabled", "Enable Sound Effects", "T", 2, "type=\"checkbox\"", WFM_LABEL_AFTER);
+    }
+    
     generateAdjusters();
-
+    generateDropdowns();
+    
+    // Reconstruct adjuster parameters with updated HTML using placement new
+    new (&custom_Movement_thresh_adjust) WiFiManagerParameter(movementThresholdHTML.c_str());
+    new (&custom_Stillness_thresh_adjust) WiFiManagerParameter(stillnessThresholdHTML.c_str());
+    new (&custom_Stillness_time_adjust) WiFiManagerParameter(readyStillnessTimeHTML.c_str());
+    new (&custom_Gesture_timout_adjust) WiFiManagerParameter(gestureTimeoutHTML.c_str());
+    new (&custom_IR_Loss_timeout_adjust) WiFiManagerParameter(irLossTimeoutHTML.c_str());
+    
+    // Reconstruct dropdown parameters with updated HTML using placement new
+    new (&custom_Nightlight_On_Dropdown) WiFiManagerParameter(nightlightOnHTML.c_str());
+    new (&custom_Nightlight_Off_Dropdown) WiFiManagerParameter(nightlightOffHTML.c_str());
+    new (&custom_Nightlight_Raise_Dropdown) WiFiManagerParameter(nightlightRaiseHTML.c_str());
+    new (&custom_Nightlight_Lower_Dropdown) WiFiManagerParameter(nightlightLowerHTML.c_str());
 }
 
-/**
- * Save web form values to NVS preferences and reboot device
- * Callback function triggered when user submits WiFiManager config form.
- * Extracts all form field values, compares to current settings, saves
- * changes to NVS flash, displays confirmation page, and reboots device.
- * SAVE LOGIC:
- * - Only saves values that have changed (avoids unnecessary NVS writes)
- * - Empty strings allowed for nightlight spells (disables feature)
- * - Non-empty, non-zero values validated before saving
- * PARAMETERS SAVED:
- * - MQTT: Host, port, topic
- * - Nightlight: On spell, off spell
- * - Tuning: All 6 detection parameters
- * REBOOT SEQUENCE:
- * 1. Extract form values from wm.server->arg()
- * 2. Compare to current global variables
- * 3. Save changes via setPref() (writes to NVS)
- * 4. Update char buffers for MQTT parameters
- * 5. Send HTML confirmation page to browser
- * 6. delay(1000) to ensure page loads
- * 7. ESP.restart() to reboot and apply changes
- * HTML CONFIRMATION PAGE:
- * - Simple centered message
- * - Instructs user to reconnect to portal
- * - Delivered before reboot so user sees feedback
- * Registered as callback via wm.setSaveParamsCallback().
- */
 void saveCustomParameters() {
-    // temporarily load new mqtt values to compare to old values
-    String newMqttHost = wm.server->arg("mqtt_server");
-    int newMqttPort = wm.server->arg("mqtt_port").toInt();
-    String newMqttTopic = wm.server->arg("mqtt_topic");
+    LOG_DEBUG("Processing web form parameters...");
+    // Dump all posted form args for debugging
+    int postedArgs = wm.server->args();
+    LOG_DEBUG("POST: arg count=%d", postedArgs);
+    for (int ai = 0; ai < postedArgs; ++ai) {
+        String an = wm.server->argName(ai);
+        String av = wm.server->arg(ai);
+        LOG_DEBUG("POST arg[%d]=%s='%s'", ai, an.c_str(), av.c_str());
+    }
+    // Collect indices of truly unnamed or garbled POST args.
+    // Consider an arg "unnamed" only if its name is empty or contains non-printable characters.
+    std::vector<int> unnamedArgIndices;
+    for (int ai = 0; ai < postedArgs; ++ai) {
+        String an = wm.server->argName(ai);
+        bool valid = (an.length() > 0);
+        for (size_t ci = 0; ci < an.length() && valid; ++ci) {
+            if (!std::isprint((unsigned char)an[ci])) valid = false;
+        }
+        if (!valid) unnamedArgIndices.push_back(ai);
+    }
+    if (!unnamedArgIndices.empty()) {
+        LOG_DEBUG("Found %d unnamed/garbled POST args; indices start=%d end=%d", (int)unnamedArgIndices.size(), unnamedArgIndices.front(), unnamedArgIndices.back());
+    }
     
-    // Get nightlight spell settings
-    String newNightlightOn = wm.server->arg("Nightlight On Spell");
-    String newNightlightOff = wm.server->arg("Nightlight Off Spell");
+    // Read all form values and update global variables immediately
+    // This allows instant regeneration of HTML with new values
+    
+    //-----------------------------------
+    // Location Settings
+    //-----------------------------------
+    String newLatitude = wm.server->arg("latitude") ? wm.server->arg("latitude") : "";
+    String newLongitude = wm.server->arg("longitude") ? wm.server->arg("longitude") : "";
+    String newTimezoneOffset = wm.server->arg("timezone") ? wm.server->arg("timezone") : "";
+    int timezoneOffsetSeconds = newTimezoneOffset.toInt() * 3600;
 
-    // If the new values are different and non-zero length, save them
+    if (newLatitude.length() > 0 && newLatitude != LATITUDE) {
+        LATITUDE = newLatitude;
+        pendingSaveToPreferences = true;
+    }
+    if (newLongitude.length() > 0 && newLongitude != LONGITUDE) {
+        LONGITUDE = newLongitude;
+        pendingSaveToPreferences = true;
+    }
+    if (newTimezoneOffset.length() > 0 && timezoneOffsetSeconds != TIMEZONE_OFFSET) {
+        TIMEZONE_OFFSET = timezoneOffsetSeconds;
+        pendingSaveToPreferences = true;
+    }
+
+    //-----------------------------------
+    // Sound Settings
+    //-----------------------------------
+    bool newSoundEnabled = wm.server->hasArg("sound_enabled");
+    if (newSoundEnabled != SOUND_ENABLED) {
+        SOUND_ENABLED = newSoundEnabled;
+        pendingSaveToPreferences = true;
+        LOG_DEBUG("Sound setting changed to: %s", newSoundEnabled ? "enabled" : "disabled");
+    }
+
+    //-----------------------------------
+    // MQTT Settings
+    //-----------------------------------
+    String newMqttHost = wm.server->arg("mqtt_server") ? wm.server->arg("mqtt_server") : "";
+    int newMqttPort = wm.server->arg("mqtt_port") ? wm.server->arg("mqtt_port").toInt() : 0;
+    String newMqttTopic = wm.server->arg("mqtt_topic") ? wm.server->arg("mqtt_topic") : "";
+
     if (newMqttHost.length() > 0 && newMqttHost != MQTT_HOST) {
         MQTT_HOST = newMqttHost;
-        setPref(PrefKey::MQTT_HOST, MQTT_HOST);
+        pendingSaveToPreferences = true;
     }
     if (newMqttPort > 0 && newMqttPort != MQTT_PORT) {
         MQTT_PORT = newMqttPort;
-        setPref(PrefKey::MQTT_PORT, MQTT_PORT);
-    }
+        pendingSaveToPreferences = true;
+    }  
     if (newMqttTopic.length() > 0 && newMqttTopic != MQTT_TOPIC) {
         MQTT_TOPIC = newMqttTopic;
-        setPref(PrefKey::MQTT_TOPIC, MQTT_TOPIC);
+        pendingSaveToPreferences = true;
     }
-    
-    // Save nightlight spell settings (can be empty to disable)
+
+    //-----------------------------------
+    // Nightlight Spell Settings
+    //-----------------------------------
+    String newNightlightOn = wm.server->arg("Nightlight On Spell");
+    String newNightlightOff = wm.server->arg("Nightlight Off Spell");
+    String newNightlightRaise = wm.server->arg("Nightlight Raise Spell");
+    String newNightlightLower = wm.server->arg("Nightlight Lower Spell");
+
     if (newNightlightOn != NIGHTLIGHT_ON_SPELL) {
         NIGHTLIGHT_ON_SPELL = newNightlightOn;
-        setPref(PrefKey::NIGHTLIGHT_ON_SPELL, NIGHTLIGHT_ON_SPELL);
+        pendingSaveToPreferences = true;
     }
     if (newNightlightOff != NIGHTLIGHT_OFF_SPELL) {
         NIGHTLIGHT_OFF_SPELL = newNightlightOff;
-        setPref(PrefKey::NIGHTLIGHT_OFF_SPELL, NIGHTLIGHT_OFF_SPELL);
+        pendingSaveToPreferences = true;
     }
-    
-    // Get location settings from form
-    String newLatitude = wm.server->arg("latitude");
-    String newLongitude = wm.server->arg("longitude");
-    int newTimezoneHours = wm.server->arg("timezone").toInt();
-    int newTimezoneSeconds = newTimezoneHours * 3600;  // Convert hours to seconds
-    
-    // Save location settings (can be empty to use auto-detected location)
-    if (newLatitude != LATITUDE) {
-        LATITUDE = newLatitude;
-        setPref(PrefKey::LATITUDE, LATITUDE);
+    if (newNightlightRaise != NIGHTLIGHT_RAISE_SPELL) {
+        NIGHTLIGHT_RAISE_SPELL = newNightlightRaise;
+        pendingSaveToPreferences = true;
     }
-    if (newLongitude != LONGITUDE) {
-        LONGITUDE = newLongitude;
-        setPref(PrefKey::LONGITUDE, LONGITUDE);
-    }
-    if (newTimezoneSeconds != TIMEZONE_OFFSET) {
-        TIMEZONE_OFFSET = newTimezoneSeconds;
-        setPref(PrefKey::TIMEZONE_OFFSET, TIMEZONE_OFFSET);
+    if (newNightlightLower != NIGHTLIGHT_LOWER_SPELL) {
+        NIGHTLIGHT_LOWER_SPELL = newNightlightLower;
+        pendingSaveToPreferences = true;
     }
 
-    // Get tuning parameters from form
-    int newMovementThreshold = wm.server->arg("Movement Threshold").toInt();
-    int newStillnessThreshold = wm.server->arg("Stillness Threshold").toInt();
-    int newReadyStillnessTime = wm.server->arg("Ready Stillness Time").toInt();
-    int newGestureTimeout = wm.server->arg("Gesture Timeout").toInt();
-    int newIrLossTimeout = wm.server->arg("IR Loss Timeout").toInt();
-    
-    // Save tuning parameters if changed
+    //-----------------------------------
+    // Tuning Parameters
+    //-----------------------------------
+    int newMovementThreshold = wm.server->arg("Movement Threshold (pixels)").toInt();
+    int newStillnessThreshold = wm.server->arg("Stillness Threshold (pixels)").toInt();
+    int newReadyStillnessTime = wm.server->arg("Ready Stillness Time (milliseconds)").toInt();
+    int newGestureTimeout = wm.server->arg("Gesture Timeout (milliseconds)").toInt();
+    int newIRLossTimeout = wm.server->arg("IR Loss Timeout (milliseconds)").toInt();
+
     if (newMovementThreshold > 0 && newMovementThreshold != MOVEMENT_THRESHOLD) {
         MOVEMENT_THRESHOLD = newMovementThreshold;
-        setPref(PrefKey::MOVEMENT_THRESHOLD, MOVEMENT_THRESHOLD);
+        pendingSaveToPreferences = true;
     }
     if (newStillnessThreshold > 0 && newStillnessThreshold != STILLNESS_THRESHOLD) {
         STILLNESS_THRESHOLD = newStillnessThreshold;
-        setPref(PrefKey::STILLNESS_THRESHOLD, STILLNESS_THRESHOLD);
+        pendingSaveToPreferences = true;
     }
     if (newReadyStillnessTime > 0 && newReadyStillnessTime != READY_STILLNESS_TIME) {
         READY_STILLNESS_TIME = newReadyStillnessTime;
-        setPref(PrefKey::READY_STILLNESS_TIME, READY_STILLNESS_TIME);
+        pendingSaveToPreferences = true;
     }
     if (newGestureTimeout > 0 && newGestureTimeout != GESTURE_TIMEOUT) {
         GESTURE_TIMEOUT = newGestureTimeout;
-        setPref(PrefKey::GESTURE_TIMEOUT, GESTURE_TIMEOUT);
+        pendingSaveToPreferences = true;
     }
-    if (newIrLossTimeout > 0 && newIrLossTimeout != IR_LOSS_TIMEOUT) {
-        IR_LOSS_TIMEOUT = newIrLossTimeout;
-        setPref(PrefKey::IR_LOSS_TIMEOUT, IR_LOSS_TIMEOUT);
+    if (newIRLossTimeout > 0 && newIRLossTimeout != IR_LOSS_TIMEOUT) {
+        IR_LOSS_TIMEOUT = newIRLossTimeout;
+        pendingSaveToPreferences = true;
     }
 
-    // Update MQTT buffers to reflect saved values
-    strcpy(mqttServerBuffer, MQTT_HOST.c_str());
-    snprintf(mqttPortBuffer, sizeof(mqttPortBuffer), "%d", MQTT_PORT);
-    strcpy(mqttTopicBuffer, MQTT_TOPIC.c_str());
-    custom_mqtt_server.setValue(mqttServerBuffer, 20);
-    custom_mqtt_port.setValue(mqttPortBuffer, 6);
-    custom_mqtt_topic.setValue(mqttTopicBuffer, 50);
+    //-----------------------------------
+    // Custom Spell Rename Handling (read generated fields)
+    //-----------------------------------
+    if (numCustomSpells > 0) {
+        // Build list of current custom spell names from tail of spellPatterns
+        std::vector<String> currentCustomNames;
+        if (spellPatterns.size() >= (size_t)numCustomSpells) {
+            size_t start = spellPatterns.size() - (size_t)numCustomSpells;
+            for (size_t i = start; i < spellPatterns.size(); ++i) {
+                currentCustomNames.push_back(String(spellPatterns[i].name));
+            }
+        } else {
+            for (size_t i = 0; i < spellPatterns.size(); ++i) {
+                if (strncmp(spellPatterns[i].name, "Custom ", 7) == 0) currentCustomNames.push_back(String(spellPatterns[i].name));
+            }
+        }
 
-    // **Send reboot confirmation page**
+        for (int i = 0; i < numCustomSpells; ++i) {
+            String newName = "";
+            // Parameter IDs are alphanumeric: customspell1, customspell2, ...
+            String fieldId = "customspell" + String(i + 1);
+            if (wm.server->hasArg(fieldId)) {
+                newName = wm.server->arg(fieldId);
+            } else if (i < (int)customSpellNameParams.size() && customSpellNameParams[i]) {
+                const char* val = customSpellNameParams[i]->getValue();
+                if (val) newName = String(val);
+            }
+
+            // Fallback: some WiFiManager builds send unnamed arg names for custom parameters.
+            // If we didn't find the value by name, try mapping to the sequence of unnamed args.
+            if (newName.length() == 0 && unnamedArgIndices.size() > (size_t)i) {
+                int argIdx = unnamedArgIndices[i];
+                String posVal = wm.server->arg(argIdx);
+                if (posVal.length() > 0) {
+                    newName = posVal;
+                    LOG_DEBUG("Using unnamed POST arg for custom field %d -> '%s' (argIdx=%d)", i, newName.c_str(), argIdx);
+                }
+            }
+
+            // Write back into the in-memory WiFiManagerParameter so redirect shows updated values
+            if (i < (int)customSpellNameParams.size() && customSpellNameParams[i]) {
+                if (newName.length() > 0) {
+                    int maxlen = 40; // buffer size used when creating the parameter
+                    int copylen = min((int)newName.length(), maxlen - 1);
+                    customSpellNameParams[i]->setValue(newName.c_str(), copylen + 1);
+                    LOG_DEBUG("Updated in-memory param[%d] value='%s'", i, newName.c_str());
+                } else {
+                    LOG_DEBUG("Skipped updating in-memory param[%d] because newName is empty", i);
+                }
+            }
+
+            String oldName = "";
+            if (i < (int)customSpellOriginalNames.size()) {
+                oldName = customSpellOriginalNames[i];
+            } else if (i < (int)currentCustomNames.size()) {
+                oldName = currentCustomNames[i];
+            }
+            if (newName.length() > 0 && oldName.length() > 0 && newName != oldName) {
+                pendingSpellRenames.push_back({oldName, newName});
+                pendingSaveCustomSpellsToSD = true;
+                LOG_DEBUG("Queued rename: '%s' -> '%s'", oldName.c_str(), newName.c_str());
+            }
+        }
+    }
+
+    //-----------------------------------
+    // Regenerate HTML with new values
+    //-----------------------------------
+    // This updates all the WiFiManager parameters with current values
+    // so the redirect shows the updated settings immediately
+    LoadCustomParameters();
+    
+    LOG_DEBUG("Settings updated in memory, flagged for background save");
+
+    //-----------------------------------
+    // Send immediate redirect response
+    //-----------------------------------
     String responseHTML = "<html><head>";
+    responseHTML += "<meta http-equiv='refresh' content='2;url=/param'>";
     responseHTML += "<style>body{font-family:sans-serif;text-align:center;padding:20px;}</style>";
     responseHTML += "</head><body>";
     responseHTML += "<h2>Settings Saved!</h2>";
-    responseHTML += "<p>Device is rebooting to apply changes...</p>";
-    responseHTML += "<p>Reconnect to the web portal in a few seconds.</p>";
+    responseHTML += "<p>Returning to settings page...</p>";
     responseHTML += "</body></html>";
 
     wm.server->send(200, "text/html", responseHTML);
-    
-    // Give the browser time to receive the response before rebooting
-    delay(1000);
-    
-    // Reboot to apply all settings
-    ESP.restart();
+
+    // Force portal to rebuild fields after save
+    wm.stopConfigPortal();
+    delay(100); // Give time for cleanup
+    wm.startWebPortal();
 }
 
 /**
- * Initialize WiFiManager and start configuration portal
- * return true if WiFi connected successfully, false if connection failed
- * Sets up WiFiManager with custom parameters for MQTT, tuning, and nightlight
- * configuration. Attempts to connect to saved WiFi credentials or starts
- * captive portal for configuration.
- * INITIALIZATION SEQUENCE:
- * 1. Set WiFi to station mode (STA)
- * 2. Load current NVS preferences into form fields
- * 3. Configure WiFiManager title and theme
- * 4. Register all custom HTML parameters (MQTT, tuning, nightlight)
- * 5. Set save callback to handle form submission
- * 6. Configure portal menu and timeouts
- * 7. Attempt autoConnect (try saved WiFi or start portal)
- * 8. Start non-blocking web portal for later access
- * CUSTOM PARAMETERS ADDED:
- * - Header texts (HTML descriptions)
- * - MQTT: Server, port, topic
- * - Nightlight: On/off spell dropdowns
- * - Tuning: 6 numeric adjusters for detection parameters
- * TIMEOUT CONFIGURATION:
- * - Portal timeout: 30 seconds (then boot continues)
- * - Connect timeout: 20 seconds (for saved WiFi)
- * - Non-blocking: Device works without WiFi
- * MENU ITEMS:
- * - wifi: WiFi configuration page
- * - param: Custom parameters page
- * - info: Device information
- * - sep: Visual separator
- * - restart: Reboot device button
- * AP MODE:
- * - SSID: \"GlyphReader-Setup\"
- * - IP: 192.168.4.1 (default captive portal IP)
- * - Started on first boot or if saved WiFi fails
- * WEB PORTAL:
- * - Started in non-blocking mode
- * - Remains accessible after boot for config changes
- * - Can access via device IP if WiFi connected
- * note: Portal remains active even if WiFi connection fails
- * note: Device continues normal operation without WiFi
- * Called from main.cpp setup() during initialization.
+ * Process background saves to NVS preferences and SD card
+ * 
+ * Called from main loop to handle deferred saves after web portal updates.
+ * This prevents blocking the HTTP response with slow SD card/NVS writes.
+ * 
+ * Saves all changed settings to persistent storage:
+ *   - NVS flash: MQTT, location, sound, nightlight, tuning parameters
+ *   - SD card: Custom spell renames (if any pending)
  */
+void processBackgroundSaves() {
+    // Save to NVS preferences if flagged
+    if (pendingSaveToPreferences) {
+        LOG_DEBUG("Background save: Writing settings to NVS preferences...");
+        
+        // MQTT settings
+        setPref(PrefKey::MQTT_HOST, MQTT_HOST);
+        setPref(PrefKey::MQTT_PORT, MQTT_PORT);
+        setPref(PrefKey::MQTT_TOPIC, MQTT_TOPIC);
+        
+        // Location settings
+        setPref(PrefKey::LATITUDE, LATITUDE);
+        setPref(PrefKey::LONGITUDE, LONGITUDE);
+        setPref(PrefKey::TIMEZONE_OFFSET, TIMEZONE_OFFSET);
+        
+        // Sound settings
+        setPref(PrefKey::SOUND_ENABLED, SOUND_ENABLED);
+        
+        // Nightlight spell settings
+        setPref(PrefKey::NIGHTLIGHT_ON_SPELL, NIGHTLIGHT_ON_SPELL);
+        setPref(PrefKey::NIGHTLIGHT_OFF_SPELL, NIGHTLIGHT_OFF_SPELL);
+        setPref(PrefKey::NIGHTLIGHT_RAISE_SPELL, NIGHTLIGHT_RAISE_SPELL);
+        setPref(PrefKey::NIGHTLIGHT_LOWER_SPELL, NIGHTLIGHT_LOWER_SPELL);
+        
+        // Tuning parameters
+        setPref(PrefKey::MOVEMENT_THRESHOLD, MOVEMENT_THRESHOLD);
+        setPref(PrefKey::STILLNESS_THRESHOLD, STILLNESS_THRESHOLD);
+        setPref(PrefKey::READY_STILLNESS_TIME, READY_STILLNESS_TIME);
+        setPref(PrefKey::GESTURE_TIMEOUT, GESTURE_TIMEOUT);
+        setPref(PrefKey::IR_LOSS_TIMEOUT, IR_LOSS_TIMEOUT);
+        
+        pendingSaveToPreferences = false;
+        LOG_DEBUG("Background save: NVS preferences updated successfully");
+    }
+    
+    // Save custom spell renames to SD card if flagged
+    if (pendingSaveCustomSpellsToSD && pendingSpellRenames.size() > 0) {
+        LOG_DEBUG("Background save: Processing %d spell renames to SD card (batch)", pendingSpellRenames.size());
+
+        // Convert to the local header's pair type
+        std::vector<SpellRenamePair> batch;
+        for (const auto& r : pendingSpellRenames) batch.push_back({r.oldName, r.newName});
+
+        if (renameCustomSpellsBatch(batch)) {
+            LOG_DEBUG("Background save: Batch rename applied successfully");
+        } else {
+            LOG_ALWAYS("Background save: Batch rename failed");
+            // Fallback: try individual renames
+            for (const auto& rename : pendingSpellRenames) {
+                if (renameCustomSpell(rename.oldName.c_str(), rename.newName.c_str())) {
+                    LOG_DEBUG("  Renamed '%s' to '%s'", rename.oldName.c_str(), rename.newName.c_str());
+                } else {
+                    LOG_ALWAYS("  Failed to rename '%s'", rename.oldName.c_str());
+                }
+            }
+        }
+
+        pendingSpellRenames.clear();
+        pendingSaveCustomSpellsToSD = false;
+        LOG_DEBUG("Background save: Custom spell renames complete");
+    }
+}
+
 bool initWM() {
-    LOG_DEBUG("Initializing WiFiManager");
-    WiFi.mode(WIFI_STA);  // Station mode (not AP mode yet)
+    LOG_DEBUG("Initializing WiFiManager...");
+    WiFi.mode(WIFI_STA); // Set WiFi to station mode
 
-    // Load stored parameters from NVS into form fields
-    loadCustomParameters();
+    // Load stored parameters into buffers (also regenerates dropdowns)
+    LoadCustomParameters();
 
-    // Set WifiManager Title
-    wm.setTitle("Glyph Reader Configuration");
+    wm.setConfigPortalBlocking(false); // Non-blocking - device continues even if WiFi fails
+    wm.setConfigPortalTimeout(20); // Config portal timeout: 60 seconds
+    wm.setCaptivePortalEnable(true); // Enable Captive Portal
+
+    // Set WiFiManager Title
+    wm.setTitle("Glyph Reader Configuration Portal");
     wm.setClass("invert");
 
-    // Add Custom Fields
+    // add custom fields
     wm.addParameter(&custom_Header_Text);
     wm.addParameter(&custom_MQTT_Text);
     wm.addParameter(&custom_mqtt_server);
@@ -492,24 +595,95 @@ bool initWM() {
     wm.addParameter(&custom_mqtt_topic);
     wm.addParameter(&custom_Nightlight_Header_Text);
     wm.addParameter(&custom_Nightlight_Text);
-    wm.addParameter(custom_Nightlight_On_Dropdown);
-    wm.addParameter(custom_Nightlight_Off_Dropdown);
+    wm.addParameter(&custom_Nightlight_On_Dropdown);
+    wm.addParameter(&custom_Nightlight_Off_Dropdown);
+    wm.addParameter(&custom_Nightlight_Raise_Dropdown);
+    wm.addParameter(&custom_Nightlight_Lower_Dropdown);
+    wm.addParameter(&custom_Sound_Header_Text);
+    wm.addParameter(&custom_sound_enabled);
+    // Insert custom spell rename UI here (header, description, and fields)
+    wm.addParameter(&custom_User_Spell_Names_Header_Text);
+    wm.addParameter(&custom_User_Spell_Names_Text);
+    // Build and add custom spell fields here (moved from lower in function)
+    // Clean up any previous custom spell name fields and labels
+    for (auto* param : customSpellNameParams) {
+        delete param;
+    }
+    customSpellNameParams.clear();
+    customSpellParamLabels.clear();
+    customSpellOriginalNames.clear();
+    // Reserve capacity to avoid reallocation which would invalidate c_str() pointers
+    if (numCustomSpells > 0) {
+        customSpellParamLabels.reserve((size_t)numCustomSpells);
+        customSpellNameParams.reserve((size_t)numCustomSpells);
+        customSpellOriginalNames.reserve((size_t)numCustomSpells);
+    }
+    
+    // Build list of current custom spell names from the tail of spellPatterns
+    std::vector<String> customNames;
+    if (numCustomSpells > 0 && spellPatterns.size() >= (size_t)numCustomSpells) {
+        size_t start = spellPatterns.size() - (size_t)numCustomSpells;
+        for (size_t i = start; i < spellPatterns.size(); ++i) {
+            customNames.push_back(String(spellPatterns[i].name));
+        }
+    } else {
+        // Fallback: scan for any names that look like custom entries
+        for (size_t i = 0; i < spellPatterns.size(); ++i) {
+            const char* spellName = spellPatterns[i].name;
+            if (strncmp(spellName, "Custom ", 7) == 0) customNames.push_back(String(spellName));
+        }
+    }
+
+    LOG_DEBUG("initWM: numCustomSpells=%d, discovered customNames.size()=%d, spellPatterns.size()=%d", numCustomSpells, (int)customNames.size(), (int)spellPatterns.size());
+
+    // Generate custom spell name fields using numCustomSpells (prefill with discovered names)
+    for (int i = 0; i < numCustomSpells; ++i) {
+        // Use alphanumeric-only parameter IDs to satisfy WiFiManager validation
+        String fieldName = "customspell" + String(i + 1);
+        String value = (i < customNames.size()) ? customNames[i] : "";
+        LOG_DEBUG("initWM: creating custom param idx=%d name=%s value='%s'", i, fieldName.c_str(), value.c_str());
+        char* buf = new char[40];
+        strncpy(buf, value.c_str(), 39);
+        buf[39] = '\0';
+        // Create persistent label string and store it so c_str() remains valid
+        customSpellParamLabels.push_back(String("Custom Spell ") + String(i + 1));
+        // Record original name for this field so we can identify the correct spell to rename later
+        customSpellOriginalNames.push_back(value);
+        const char* labelCStr = customSpellParamLabels.back().c_str();
+        LOG_DEBUG("initWM: label[%d]=%s addr=%p", i, labelCStr, (void*)labelCStr);
+        WiFiManagerParameter* param = new WiFiManagerParameter(fieldName.c_str(), labelCStr, buf, 40);
+        customSpellNameParams.push_back(param);
+        LOG_DEBUG("initWM: pushed param ptr=%p", (void*)param);
+    }
+
+    // Add custom spell name fields to portal
+    for (auto* param : customSpellNameParams) {
+        wm.addParameter(param);
+    }
     wm.addParameter(&custom_Location_Header_Text);
     wm.addParameter(&custom_Location_Text);
     wm.addParameter(&custom_latitude);
     wm.addParameter(&custom_longitude);
     wm.addParameter(&custom_timezone);
+
     wm.addParameter(&custom_Tuning_Header_Text);
+
     wm.addParameter(&custom_stillness_text);
-    wm.addParameter(custom_Stillness_adjust);
-    wm.addParameter(&custom_Start_Movement_text);
-    wm.addParameter(custom_Movement_adjust);
+    wm.addParameter(&custom_Stillness_thresh_adjust);
+
     wm.addParameter(&custom_Start_Stillness_Time_text);
-    wm.addParameter(custom_Ready_Stillness_adjust);
+    wm.addParameter(&custom_Stillness_time_adjust);
+
+    wm.addParameter(&custom_Start_Movement_text);
+    wm.addParameter(&custom_Movement_thresh_adjust);
+
     wm.addParameter(&custom_Max_Gesture_Time_text);
-    wm.addParameter(custom_Gesture_Timeout_adjust);
+    wm.addParameter(&custom_Gesture_timout_adjust);
+
     wm.addParameter(&custom_IR_Loss_Timeout_text);
-    wm.addParameter(custom_IR_Loss_Timeout_adjust);
+    wm.addParameter(&custom_IR_Loss_timeout_adjust);
+
+    // (custom spell fields will be created/added earlier in the function)
 
     // ensure settings are saved when changed
     wm.setSaveParamsCallback(saveCustomParameters);
@@ -518,27 +692,18 @@ bool initWM() {
     std::vector<const char*> menu = {"wifi", "param", "info", "sep", "restart"};
     wm.setMenu(menu);
 
-    // Enable WiFiManager to automatically manage AP when disconnected
-    // This makes WiFiManager handle AP creation whenever WiFi is not connected
-    wm.setConfigPortalBlocking(false);  // Non-blocking mode
-    
-    // Set connect timeout for saved WiFi credentials
-    wm.setConnectTimeout(15);  // 15 seconds to connect to saved WiFi
-    
-    // Try to connect to saved WiFi or start AP if no connection
-    // In non-blocking mode, this returns immediately and wm.process() handles everything
-    bool connected = wm.autoConnect("GlyphReader-Setup");
-    
-    if (connected) {
-        LOG_ALWAYS("WiFi connected: %s", WiFi.SSID().c_str());
-        LOG_ALWAYS("Web portal available at: http://%s", WiFi.localIP().toString().c_str());
+    wm.setConnectTimeout(15); // 15 seconds to connect to WiFi
+
+    // Try to connect to saved WiFi or start config portal
+    if (!wm.autoConnect("GlyphReader-Setup")) {
+        LOG_ALWAYS("Failed to connect to WiFi - continuing without network");
+        // Device continues operating without WiFi
+        return false;  // Indicates no WiFi, but device still functional
     } else {
-        LOG_ALWAYS("WiFi not connected - AP mode active (GlyphReader-Setup)");
+        LOG_DEBUG("Connected to WiFi!");
+        wm.startWebPortal();  // Keep web portal available for configuration changes
+        return true;  // WiFi connected successfully
     }
-    
-    // Start web portal for configuration (works both in STA and AP mode)
-    // This keeps the web interface accessible even when connected to WiFi
-    wm.startWebPortal();
-    
-    return connected;  // Return initial status
+
 }
+

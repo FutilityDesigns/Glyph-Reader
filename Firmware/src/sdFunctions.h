@@ -164,4 +164,6 @@ String getSpellImageFilename(const char* spellName);
  */
 bool loadCustomSpells();
 
+extern int numCustomSpells;
+
 #endif // SD_FUNCTIONS_H

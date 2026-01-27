@@ -112,40 +112,42 @@ std::vector<Point> resampleTrajectory(const std::vector<Point>& traj, int numPoi
   std::vector<Point> resampled;
   resampled.push_back(traj[0]);  // Always keep the first point
   
-  float distanceSoFar = 0;  // Distance accumulated along current segment
+  float accumulatedDist = 0;  // Distance accumulated since last resampled point
+  size_t srcIndex = 1;  // Current position in source trajectory
   
-  // Walk through each segment of the original trajectory
-  for (size_t i = 1; i < traj.size() && resampled.size() < numPoints; i++) {
-    float dx = traj[i].x - traj[i-1].x;
-    float dy = traj[i].y - traj[i-1].y;
-    float segDist = sqrt(dx*dx + dy*dy);  // Length of current segment
+  // Generate exactly numPoints - 1 additional points (we already added first point)
+  for (int targetPoint = 1; targetPoint < numPoints; targetPoint++) {
+    float targetDist = targetPoint * segmentLength;  // Where next point should be along path
     
-    // Check if we should place one or more new points within this segment
-    // (handles case where multiple resampled points fall on one original segment)
-    while (distanceSoFar + segDist >= segmentLength && resampled.size() < numPoints) {
-      // Calculate where along this segment the new point should be
-      // ratio = 0 means at start of segment, ratio = 1 means at end
-      float ratio = (segmentLength - distanceSoFar) / segDist;
+    // Walk forward through source trajectory until we pass the target distance
+    while (srcIndex < traj.size()) {
+      float dx = traj[srcIndex].x - traj[srcIndex-1].x;
+      float dy = traj[srcIndex].y - traj[srcIndex-1].y;
+      float segDist = sqrt(dx*dx + dy*dy);
       
-      // Linearly interpolate between the two points
-      Point p;
-      p.x = traj[i-1].x + ratio * dx;
-      p.y = traj[i-1].y + ratio * dy;
-      p.timestamp = traj[i-1].timestamp + ratio * (traj[i].timestamp - traj[i-1].timestamp);
-      resampled.push_back(p);
+      // Check if target point lies within current segment
+      if (accumulatedDist + segDist >= targetDist) {
+        // Interpolate new point within this segment
+        float ratio = (targetDist - accumulatedDist) / segDist;
+        
+        Point p;
+        p.x = traj[srcIndex-1].x + ratio * dx;
+        p.y = traj[srcIndex-1].y + ratio * dy;
+        p.timestamp = traj[srcIndex-1].timestamp + ratio * (traj[srcIndex].timestamp - traj[srcIndex-1].timestamp);
+        resampled.push_back(p);
+        break;  // Found this target point, move to next
+      }
       
-      // Reset distance counter and adjust remaining segment length
-      distanceSoFar = 0;
-      segDist = (1 - ratio) * segDist;  // Remaining distance in this segment
+      // Target is beyond current segment, keep accumulating
+      accumulatedDist += segDist;
+      srcIndex++;
     }
     
-    // Accumulate leftover distance for next iteration
-    distanceSoFar += segDist;
-  }
-  
-  // Ensure we have exactly numPoints (edge case: rounding errors might leave us one short)
-  if (resampled.size() < numPoints) {
-    resampled.push_back(traj.back());
+    // Safety check: if we ran out of source points, use the last one
+    if (srcIndex >= traj.size()) {
+      resampled.push_back(traj.back());
+      break;
+    }
   }
   
   return resampled;
@@ -275,9 +277,9 @@ void matchSpell(const std::vector<Point>& currentTrajectory) {
   
   // Prepare the user's gesture for comparison:
   // - Normalize to standard 0-1000 coordinate space (scale/translation invariant)
-  // - Resample to exactly 40 evenly-spaced points (consistent comparison)
+  // - Resample to exactly RESAMPLE_POINTS evenly-spaced points (consistent comparison)
   std::vector<Point> normalized = normalizeTrajectory(currentTrajectory);
-  std::vector<Point> resampled = resampleTrajectory(normalized, 40);
+  std::vector<Point> resampled = resampleTrajectory(normalized, RESAMPLE_POINTS);
   
   // Calculate gesture duration for debugging/display
   // (not used in matching - we removed speed constraints)

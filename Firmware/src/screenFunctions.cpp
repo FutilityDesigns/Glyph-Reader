@@ -31,6 +31,10 @@
 #include "glyphReader.h"
 #include "sdFunctions.h"
 #include "spell_patterns.h"
+#include "spell_matching.h"
+#include <Fonts/FreeSansBold18pt7b.h>
+#include <Fonts/FreeSansBold24pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
 
 // Create display instance
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
@@ -72,11 +76,15 @@ void screenInit() {
   
   // Configure Backlight pin for manual on/off control
   pinMode(TFT_BL, OUTPUT);
-  digitalWrite(TFT_BL, HIGH);  // Turn on backlight
-  LOG_DEBUG("Backlight pin %d set to HIGH", TFT_BL);
+  // Use centralized backlight control to ensure consistent polarity
+  backlightOn();
+  LOG_DEBUG("Backlight pin %d initialized via backlightOn()", TFT_BL);
   delay(100);
-  
+#ifdef INVERT_DISPLAY
+    tft.setRotation(2);  // Rotate 180 degrees for inverted wiring
+#else
   tft.setRotation(0);  // 0-3 for different orientations (0=portrait)
+#endif
   
   // Fill screen with random color as visual confirmation (using ESP32 hardware RNG)
   uint16_t randomColor = esp_random() & 0xFFFF;  // Random RGB565 color
@@ -158,6 +166,50 @@ void drawIRPoint(int x, int y, bool isActive) {
 }
 
 /**
+ * Clear IR trail state
+ */
+void clearIRTrail() {
+  lastIRX = -1;
+  lastIRY = -1;
+}
+
+/**
+ * Show ready-state background
+ * Fill screen with green and draw border circle to match idle frame.
+ */
+void showReadyBackground() {
+  // Draw a thick green border ring by drawing concentric circle outlines
+  // so the center is never fully filled with green (avoids visible flicker).
+  const uint16_t GREEN = 0x07E0; // RGB565 green
+  const uint16_t BLACK = 0x0000;
+  const int cx = 120;
+  const int cy = 120;
+  const int outerR = 119;
+  const int borderThickness = 12; // px, adjust for thicker/thinner ring
+  const int innerR = outerR - borderThickness;
+
+  // Start with black background so we never show a full green fill
+  tft.fillScreen(BLACK);
+
+  // Draw concentric outlines to form a solid-looking ring without filling
+  for (int r = innerR + 1; r <= outerR; r++) {
+    tft.drawCircle(cx, cy, r, GREEN);
+  }
+
+  // Redraw the reference outer outline for consistency
+  tft.drawCircle(cx, cy, outerR, 0x4208);
+
+  screenOnTime = millis();
+}
+
+/**
+ * Restore idle background (black with border circle)
+ */
+void restoreIdleBackground() {
+  clearDisplay();
+}
+
+/**
  * Display recognized spell name (image or text)
  * spellName: Null-terminated string containing spell name (e.g., "Illuminate")
  * Shows spell on display when match is found. Tries to load BMP image from SD
@@ -206,7 +258,7 @@ void displaySpellName(const char* spellName) {
   tft.drawCircle(120, 120, 110, 0x780F);  // Purple outer circle
   tft.drawCircle(120, 120, 105, 0x780F);  // Purple inner circle (double border)
   
-  tft.setTextSize(3);  // Large text for readability
+  tft.setFont(&FreeSansBold12pt7b);  // Use smooth FreeSansBold font
   tft.setTextColor(0x07FF);  // Cyan color for good contrast
   
   // Check if spell name has a space (indicates multi-word spell)
@@ -229,13 +281,14 @@ void displaySpellName(const char* spellName) {
     int startY = (240 - totalHeight) / 2;  // Center vertically
     
     // Display first word centered horizontally
+    // Note: Custom fonts use baseline positioning, so add height to y position
     int centerX1 = (240 - w1) / 2;
-    tft.setCursor(centerX1, startY);
+    tft.setCursor(centerX1, startY + h1);
     tft.println(firstWord);
     
     // Display second word centered below first
     int centerX2 = (240 - w2) / 2;
-    tft.setCursor(centerX2, startY + h1 + 10);
+    tft.setCursor(centerX2, startY + h1 + h2 + 10);
     tft.println(secondWord);
     
   } else {
@@ -245,11 +298,14 @@ void displaySpellName(const char* spellName) {
     tft.getTextBounds(spellName, 0, 0, &x1, &y1, &w, &h);
     
     int centerX = (240 - w) / 2;  // Horizontal center
-    int centerY = (240 - h) / 2;  // Vertical center
+    int centerY = (240 - h) / 2 + h;  // Vertical center (add h for baseline positioning)
     
     tft.setCursor(centerX, centerY);
     tft.println(spellName);
   }
+  
+  // Reset to default font for other displays
+  tft.setFont();
   
   // Set timeout timers to keep display on for spell viewing
   screenSpellOnTime = millis();  // Spell-specific timeout
@@ -275,10 +331,19 @@ void clearDisplay() {
 /**
  * Turn off display backlight to save power
  * Sets backlight GPIO LOW to disable LED backlight.
+ * Also clears screen to black to prevent burn-in.
  */
 void backlightOff() {
-    digitalWrite(TFT_BL, HIGH);  // Turn off backlight LED
+    // Clear screen to black to prevent burn-in while backlight is off
+    tft.fillScreen(0x0000);  // Black
+    
+#ifdef INVERT_BACKLIGHT
+    digitalWrite(TFT_BL, LOW);  // Turn off backlight LED
     LOG_DEBUG("Backlight turned OFF (pin %d set to LOW)", TFT_BL);
+#else
+    digitalWrite(TFT_BL, HIGH);  // Turn off backlight LED
+    LOG_DEBUG("Backlight turned OFF (pin %d set to HIGH)", TFT_BL);
+#endif
     backlightStateOn = false;  // Update global state flag
 }
 
@@ -287,8 +352,13 @@ void backlightOff() {
  * Sets backlight GPIO HIGH to enable LED backlight.
  */
 void backlightOn() {
-    digitalWrite(TFT_BL, LOW);  // Turn on backlight LED
+#ifdef INVERT_BACKLIGHT
+    digitalWrite(TFT_BL, HIGH);  // Turn on backlight LED
     LOG_DEBUG("Backlight turned ON (pin %d set to HIGH)", TFT_BL);
+#else
+    digitalWrite(TFT_BL, LOW);  // Turn on backlight LED
+    LOG_DEBUG("Backlight turned ON (pin %d set to LOW)", TFT_BL);
+#endif
     backlightStateOn = true;  // Update global state flag
 }
 
@@ -417,14 +487,25 @@ bool displayImageFromSD(const char* filename, int16_t x, int16_t y) {
   }
   
   // Write to display in reverse order (convert BMP bottom-to-top to display top-to-bottom)
+  LOG_DEBUG("About to write %dx%d image to display (backlightStateOn=%d)", width, height, backlightStateOn);
+  // Ensure backlight is on during the write to rule out transient toggles
+  if (!backlightStateOn) {
+    LOG_DEBUG("Forcing backlight on for image write");
+    backlightOn();
+    delay(10);
+  }
+
   tft.startWrite();  // Begin SPI transaction for bulk write
   tft.setAddrWindow(x, y, width, height);  // Set drawing window
-  
+
   for (int row = height - 1; row >= 0; row--) {  // Reverse row order
     tft.writePixels(imageRows[row], width);  // Write entire row at once
   }
-  
+
   tft.endWrite();  // End SPI transaction
+  LOG_DEBUG("Finished writing image to display");
+  // Small delay to allow any hardware/LED drivers to settle
+  delay(20);
   
   // Free all allocated memory (row arrays, pointer array, temp buffers)
   for (int i = 0; i < height; i++) {
@@ -456,13 +537,14 @@ void visualizeSpellPattern(const char* name, const std::vector<Point>& pattern) 
   tft.drawCircle(120, 120, 119, 0x4208);  // Dark gray reference circle
   
   // Draw spell name centered at top
-  tft.setTextSize(2);
+  tft.setFont(&FreeSansBold12pt7b);
   tft.setTextColor(0xFFFF);  // White text
   int16_t x1, y1;
   uint16_t w, h;
   tft.getTextBounds(name, 0, 0, &x1, &y1, &w, &h);
-  tft.setCursor((240 - w) / 2, 10);  // Center horizontally, 10px from top
+  tft.setCursor((240 - w) / 2, 10 + h);  // Center horizontally, baseline positioning
   tft.println(name);
+  tft.setFont();  // Reset to default font
   
   // Find bounding box of pattern (patterns should already be 0-1000 normalized)
   // Find bounding box of pattern (patterns should already be 0-1000 normalized)
@@ -510,6 +592,101 @@ void visualizeSpellPattern(const char* name, const std::vector<Point>& pattern) 
   delay(1200);  // Hold final pattern for 1.2 seconds so user can see it
 }
 
+/**
+ * Visualize spell match comparison for debugging
+ * Overlays the matched spell pattern (green) and user trajectory (cyan)
+ * to show how well they align. Used for debugging match accuracy.
+ * name: Spell name
+ * spellPattern: The matched spell pattern (resampled, normalized)
+ * userTrajectory: The user's drawn trajectory (resampled, normalized)
+ * similarity: The calculated similarity score (0.0-1.0)
+ */
+void visualizeMatchComparison(const char* name, const std::vector<Point>& spellPattern, const std::vector<Point>& userTrajectory, float similarity) {
+  if (spellPattern.empty() || userTrajectory.empty()) return;
+  
+  // Clear screen and draw border circle
+  tft.fillScreen(0x0000);
+  tft.drawCircle(120, 120, 119, 0x4208);  // Dark gray reference circle
+  
+  // Draw spell name and similarity score at top
+  tft.setFont(&FreeSansBold12pt7b);
+  tft.setTextColor(0xFFFF);  // White text
+  int16_t x1, y1;
+  uint16_t w, h;
+  
+  // Display spell name
+  tft.getTextBounds(name, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor((240 - w) / 2, 15 + h);
+  tft.println(name);
+  
+  // Display similarity score
+  tft.setFont(&FreeSansBold12pt7b);
+  char scoreText[32];
+  snprintf(scoreText, sizeof(scoreText), "%.1f%%", similarity * 100);
+  tft.getTextBounds(scoreText, 0, 0, &x1, &y1, &w, &h);
+  tft.setTextColor(similarity >= MATCH_THRESHOLD ? 0x07E0 : 0xF800);  // Green if match, red if no match
+  tft.setCursor((240 - w) / 2, 35 + h);
+  tft.println(scoreText);
+  tft.setFont();  // Reset font
+  
+  // Drawing area with margins - scale to 80% and center
+  int displayMargin = 55;  // Top margin for text
+  int fullDisplaySize = 240 - (displayMargin * 2);  // Full available size
+  float scale = 0.8;  // Scale down to 80%
+  int scaledSize = fullDisplaySize * scale;  // Actual drawing size
+  int centerOffset = (fullDisplaySize - scaledSize) / 2;  // Offset to center
+  int leftMargin = displayMargin + centerOffset;
+  int rightMargin = 240 - displayMargin - centerOffset;
+  int topMargin = displayMargin + centerOffset;
+  int bottomMargin = 240 - displayMargin - centerOffset + 55;
+  
+  // Draw spell pattern (green)
+  for (size_t i = 0; i < spellPattern.size(); i++) {
+    int displayX = map(spellPattern[i].x, 0, 1000, leftMargin, rightMargin);
+    int displayY = map(spellPattern[i].y, 0, 1000, topMargin, bottomMargin);
+    
+    // Draw connecting line
+    if (i > 0) {
+      int prevX = map(spellPattern[i-1].x, 0, 1000, leftMargin, rightMargin);
+      int prevY = map(spellPattern[i-1].y, 0, 1000, topMargin, bottomMargin);
+      tft.drawLine(prevX, prevY, displayX, displayY, 0x07E0);  // Green line
+    }
+    
+    // Draw point
+    tft.fillCircle(displayX, displayY, 2, 0x07E0);  // Green dot
+  }
+  
+  // Draw user trajectory (cyan)
+  for (size_t i = 0; i < userTrajectory.size(); i++) {
+    int displayX = map(userTrajectory[i].x, 0, 1000, leftMargin, rightMargin);
+    int displayY = map(userTrajectory[i].y, 0, 1000, topMargin, bottomMargin);
+    
+    // Draw connecting line
+    if (i > 0) {
+      int prevX = map(userTrajectory[i-1].x, 0, 1000, leftMargin, rightMargin);
+      int prevY = map(userTrajectory[i-1].y, 0, 1000, topMargin, bottomMargin);
+      tft.drawLine(prevX, prevY, displayX, displayY, 0x07FF);  // Cyan line
+    }
+    
+    // Draw point
+    tft.fillCircle(displayX, displayY, 2, 0x07FF);  // Cyan dot
+  }
+  
+  // Add legend at bottom
+  tft.setTextSize(1);
+  tft.setTextColor(0x07E0);  // Green
+  tft.setCursor(20, 220);
+  tft.print("Spell");
+  
+  tft.setTextColor(0x07FF);  // Cyan
+  tft.setCursor(180, 220);
+  tft.print("User");
+  
+  // Set timeout timers
+  screenSpellOnTime = millis();
+  screenOnTime = millis();
+}
+
 //=====================================
 // Settings Menu Display
 //=====================================
@@ -523,7 +700,7 @@ void visualizeSpellPattern(const char* name, const std::vector<Point>& pattern) 
  * - Navigation indicators (arrows/brackets)
  * - Edit mode indicator
  * 
- * settingIndex: Which setting to display (0 = NL ON, 1 = NL OFF)
+ * settingIndex: Which setting to display (0 = NL ON, 1 = NL OFF, 2 = NL RAISE, 3 = NL LOWER)
  * valueIndex: Which value option is selected (0 = Disabled, 1+ = spell index)
  * isEditing: True if currently editing value, false if browsing settings
  */
@@ -531,15 +708,29 @@ void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
     // Clear display
     tft.fillScreen(0x0000);  // Black background
     
-    // Define setting names
+    // Define category and setting names
+    const char* categoryNames[] = {"Night Light", "Spells"};
     const char* settingNames[] = {
-        "NL ON Spell",
-        "NL OFF Spell"
+        "On Spell",      // 0 - Night Light category
+        "Off Spell",     // 1
+        "Raise Spell",   // 2
+        "Lower Spell",   // 3
+        "Add Spell"      // 4 - Spells category
     };
+    
+    // Determine which category this setting belongs to
+    const char* categoryName;
+    if (settingIndex <= 3) {
+        categoryName = categoryNames[0];  // Night Light
+    } else {
+        categoryName = categoryNames[1];  // Spells
+    }
     
     // Get value name
     String valueName;
-    if (valueIndex == 0) {
+    if (settingIndex == 4) {
+        valueName = "Press to Start";
+    } else if (valueIndex == 0) {
         valueName = "Disabled";
     } else if (valueIndex > 0 && valueIndex <= (int)spellPatterns.size()) {
         valueName = spellPatterns[valueIndex - 1].name;
@@ -547,27 +738,38 @@ void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
         valueName = "Error";
     }
     
-    // Display setting name at top (centered)
+    // Display category name at top (centered) - FreeSansBold 18pt
+    tft.setFont(&FreeSansBold12pt7b);
     tft.setTextColor(0xFFFF);  // White text
-    tft.setTextSize(2);
+    int16_t x1, y1;
+    uint16_t w, h;
     
-    if (settingIndex >= 0 && settingIndex < 2) {
-        String settingNameStr = settingNames[settingIndex];
-        int nameWidth = settingNameStr.length() * 12;  // Size 2: ~12px per char
-        int nameCenterX = (240 - nameWidth) / 2;
-        tft.setCursor(nameCenterX, 30);
-        tft.print(settingNameStr);
+    tft.getTextBounds(categoryName, 0, 0, &x1, &y1, &w, &h);
+    int categoryCenterX = (240 - w) / 2;
+    tft.setCursor(categoryCenterX, 20 + h);
+    tft.println(categoryName);
+    
+    // Display setting name below category (centered) - FreeSansBold 12pt
+    tft.setFont(&FreeSansBold12pt7b);
+    if (settingIndex >= 0 && settingIndex < 5) {
+        tft.getTextBounds(settingNames[settingIndex], 0, 0, &x1, &y1, &w, &h);
+        int settingCenterX = (240 - w) / 2;
+        tft.setCursor(settingCenterX, 45 + h);
+        tft.println(settingNames[settingIndex]);
     }
+    
+    tft.setFont();  // Reset to default font
     
     // Display navigation/edit indicator (centered)
     tft.setTextSize(1);
-    if (isEditing) {
+    if (settingIndex != 4) {  // Not Add Spell
+        if (isEditing) {
         // Editing mode - show brackets around value
         tft.setTextColor(0x07E0);  // Green for edit mode
         String editText = "[ EDITING ]";
         int editWidth = editText.length() * 6;  // Size 1: ~6px per char
         int editCenterX = (240 - editWidth) / 2;
-        tft.setCursor(editCenterX, 60);
+        tft.setCursor(editCenterX, 75);
         tft.print(editText);
     } else {
         // Browse mode - show navigation hint
@@ -575,26 +777,31 @@ void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
         String browseText = "< BROWSE >";
         int browseWidth = browseText.length() * 6;  // Size 1: ~6px per char
         int browseCenterX = (240 - browseWidth) / 2;
-        tft.setCursor(browseCenterX, 60);
-        tft.print(browseText);
-    }
+        tft.setCursor(browseCenterX, 75);
+        tft.print(browseText);        }    }
     
-    // Display current value in center (large text)
+    // Display current value in center (FreeSansBold 24pt)
+    tft.setFont(&FreeSansBold12pt7b);
     tft.setTextColor(0xFFFF);  // White text
-    tft.setTextSize(2);
     
-    // Calculate center position for value text
-    int textWidth = valueName.length() * 12;  // Size 2: ~12px per char
-    int centerX = (240 - textWidth) / 2;
-    tft.setCursor(centerX, 120);
-    tft.print(valueName);
+    // Get text bounds and center horizontally and vertically
+    tft.getTextBounds(valueName.c_str(), 0, 0, &x1, &y1, &w, &h);
+    int valueCenterX = (240 - w) / 2;
+    int valueCenterY = 120 + (h / 2);  // Center vertically with baseline positioning
+    tft.setCursor(valueCenterX, valueCenterY);
+    tft.println(valueName);
+    
+    tft.setFont();  // Reset font
     
     // Display instructions at bottom (centered)
     tft.setTextSize(1);
     tft.setTextColor(0x7BEF);  // Light gray
     
     String instruction1;
-    if (isEditing) {
+    if (settingIndex == 4) {
+        // Add Spell has different instructions
+        instruction1 = "BTN1: Start Recording";
+    } else if (isEditing) {
         instruction1 = "BTN2:Cycle BTN1:Save";
     } else {
         instruction1 = "BTN2:Next BTN1:Edit";
@@ -613,4 +820,64 @@ void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
     
     // Update screen timestamp
     screenOnTime = millis();
+}
+
+/**
+ * Display a centered error message on screen
+ * Shows the message in red with FreeSansBold18pt font
+ */
+void displayError(const char* message) {
+  tft.fillScreen(0x0000);
+  tft.setFont(&FreeSansBold12pt7b);
+  tft.setTextColor(0xF800);  // Red
+  
+  // Check if message has a space (indicates multi-line)
+  String msg = String(message);
+  int spaceIndex = msg.indexOf(' ');
+  
+  if (spaceIndex > 0) {
+    // Split into two lines
+    String line1 = msg.substring(0, spaceIndex);
+    String line2 = msg.substring(spaceIndex + 1);
+    
+    int16_t x1, y1;
+    uint16_t w, h;
+    
+    // Display first line
+    tft.getTextBounds(line1.c_str(), 0, 0, &x1, &y1, &w, &h);
+    tft.setCursor((240 - w) / 2, 100 + h);
+    tft.println(line1);
+    
+    // Display second line
+    tft.getTextBounds(line2.c_str(), 0, 0, &x1, &y1, &w, &h);
+    tft.setCursor((240 - w) / 2, 140 + h);
+    tft.println(line2);
+  } else {
+    // Single line
+    int16_t x1, y1;
+    uint16_t w, h;
+    tft.getTextBounds(message, 0, 0, &x1, &y1, &w, &h);
+    tft.setCursor((240 - w) / 2, 120 + h);
+    tft.println(message);
+  }
+  
+  tft.setFont();
+}
+
+/**
+ * Display a centered message on screen
+ * Shows the message in the specified color with FreeSansBold18pt font
+ */
+void displayMessage(const char* message, uint16_t color) {
+  tft.fillScreen(0x0000);
+  tft.setFont(&FreeSansBold12pt7b);
+  tft.setTextColor(color);
+  
+  int16_t x1, y1;
+  uint16_t w, h;
+  tft.getTextBounds(message, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor((240 - w) / 2, 120 + h);
+  tft.println(message);
+  
+  tft.setFont();
 }

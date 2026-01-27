@@ -46,8 +46,11 @@
 #include "led_control.h"
 #include "preferenceFunctions.h"
 #include "spell_matching.h"
+#include "spell_patterns.h"
 #include "wifiFunctions.h"
 #include "screenFunctions.h"
+#include "audioFunctions.h"
+#include "customSpellFunctions.h"
 
 #include <vector>
 #include <cmath>
@@ -64,11 +67,25 @@
 #define MAX_TRAJECTORY_POINTS 1000
 
 /**
+ * No movement timeout (milliseconds)
+ * Time without movement before ending gesture recording
+ */
+#define NO_MOVEMENT_TIMEOUT 500
+
+/**
  * Minimum bounding box size for valid spell (pixels)
  * Gestures with smaller bounding boxes are rejected as "too small".
  * Prevents accidental triggers from tiny movements or jitter.
  */
-#define MIN_BOUNDING_BOX_SIZE 100
+#define MIN_BOUNDING_BOX_SIZE 200
+
+/**
+ * Tracking Point Jump Threshold (pixels)
+ * If the tracked IR point jumps more than this distance between
+ * frames, it is considered an invalid reading and ignored.
+ * Helps filter out spurious readings from camera noise.
+ */
+#define POINT_JUMP_THRESHOLD 40
 
 //=====================================
 // Gesture State Machine
@@ -303,6 +320,34 @@ bool initCamera() {
 //=====================================
 
 /**
+ * Display spell result - either debug visualization or spell name
+ * 
+ * Helper function to avoid code duplication for SHOW_MATCHING debug mode.
+ * When SHOW_MATCHING is defined, shows side-by-side pattern comparison.
+ * Otherwise, displays the spell name image.
+ * 
+ * bestSpell: Name of the matched spell
+ * resampled: User's normalized/resampled trajectory
+ * bestMatch: Similarity score (0.0 to 1.0)
+ */
+void displaySpellResult(const char* bestSpell, const std::vector<Point>& resampled, float bestMatch) {
+#ifdef SHOW_MATCHING
+  // Debug mode: show pattern comparison
+  for (const auto& spell : spellPatterns) {
+    if (strcasecmp(spell.name, bestSpell) == 0) {
+      std::vector<Point> spellNorm = normalizeTrajectory(spell.pattern);
+      std::vector<Point> spellResampled = resampleTrajectory(spellNorm, RESAMPLE_POINTS);
+      visualizeMatchComparison(bestSpell, spellResampled, resampled, bestMatch);
+      break;
+    }
+  }
+#else
+  // Normal mode: show spell name/image
+  displaySpellName(bestSpell);
+#endif
+}
+
+/**
  * Read IR blob data from camera and process gesture state machine
  * 
  * This is the main function called at ~100Hz from the main loop.
@@ -415,6 +460,7 @@ void readCameraData() {
         ledSolid("yellow");  // Yellow = detected but not ready yet
         backlightOn();  // Turn on screen for visual feedback
         screenOnTime = millis();  // Reset screen timeout
+        
         LOG_DEBUG("STATE: IR detected (hold still to begin)");
         break;
       }
@@ -430,13 +476,17 @@ void readCameraData() {
           if (distanceFromReady >= MOVEMENT_THRESHOLD) {
             // Moved outside boundary - start tracking!
             currentTrajectory.clear();
+            // Save the stable ready position as the first point (the actual start of the gesture)
+            Point startPoint = {stablePosition.x, stablePosition.y, stablePosition.timestamp};
+            currentTrajectory.push_back(startPoint);
+            // Add the current position as the second point
             Point p = {currentX, currentY, currentTime};
             currentTrajectory.push_back(p);
             lastMovementTime = currentTime;
             hasMovedDuringRecording = false;
             currentState = RECORDING;
             ledSolid("blue");
-            LOG_DEBUG("STATE: Tracking started");
+            LOG_DEBUG("STATE: Tracking started from stable position (%d, %d)", stablePosition.x, stablePosition.y);
           }
           // Otherwise stay green and ready
         } else {
@@ -455,6 +505,8 @@ void readCameraData() {
               // Stillness achieved - show green, ready to start tracking on next movement
               readyToTrack = true;
               ledSolid("green");
+              showReadyBackground();
+              playSound("/sounds/detected.wav");  // Play detection sound
               LOG_DEBUG("STATE: Ready to track - move wand to begin casting");
             }
           } else if (drift >= MOVEMENT_THRESHOLD) {
@@ -481,13 +533,32 @@ void readCameraData() {
       }
         
       case RECORDING: {
-        // Always add point to trajectory
-        Point p = {currentX, currentY, currentTime};
-        currentTrajectory.push_back(p);
+        // Check if point is an outlier (too far from previous point - likely a reflection)
+        bool isOutlier = false;
+        if (currentTrajectory.size() > 0) {
+          Point& lastPoint = currentTrajectory.back();
+          float dx = currentX - lastPoint.x;
+          float dy = currentY - lastPoint.y;
+          float jumpDistance = sqrt(dx*dx + dy*dy);
+          
+          // Reject points that jump more than 150 pixels from previous point
+          // (normal wand movement should be continuous, reflections cause large jumps)
+          if (jumpDistance > POINT_JUMP_THRESHOLD) {
+            isOutlier = true;
+            LOG_DEBUG("Outlier rejected: jump=%.1f from (%d,%d) to (%d,%d)", 
+                     jumpDistance, lastPoint.x, lastPoint.y, currentX, currentY);
+          }
+        }
         
-        // Limit trajectory size
-        if (currentTrajectory.size() > MAX_TRAJECTORY_POINTS) {
-          currentTrajectory.erase(currentTrajectory.begin());
+        // Only add point if it's not an outlier
+        if (!isOutlier) {
+          Point p = {currentX, currentY, currentTime};
+          currentTrajectory.push_back(p);
+          
+          // Limit trajectory size
+          if (currentTrajectory.size() > MAX_TRAJECTORY_POINTS) {
+            currentTrajectory.erase(currentTrajectory.begin());
+          }
         }
         
         // Check if this is significant movement
@@ -547,6 +618,7 @@ void readCameraData() {
         LOG_DEBUG("Gesture too small - insufficient movement");
         ledSolid("red");
         ledOnTime = millis();
+        playSound("/sounds/error.wav");  // Play error sound
         displaySpellName("Too Small");
         currentTrajectory.clear();
         currentState = WAITING_FOR_IR;
@@ -573,7 +645,44 @@ void readCameraData() {
           LOG_DEBUG("Trajectory too short (%d points)\n", currentTrajectory.size());
           ledSolid("red");
           ledOnTime = millis();
+          playSound("/sounds/error.wav");  // Play error sound
           displaySpellName("Too Short");
+          currentTrajectory.clear();
+          currentState = WAITING_FOR_IR;
+          readyToTrack = false;
+          irLostTime = 0;
+          lastX = -1;
+          lastY = -1;
+          return;
+        }
+        
+        // Check if we're recording a custom spell
+        if (isRecordingCustomSpell) {
+          // Recording mode - show preview instead of matching
+          std::vector<Point> normalized = normalizeTrajectory(currentTrajectory);
+          std::vector<Point> resampled = resampleTrajectory(normalized, RESAMPLE_POINTS);
+          
+          // Store for saving
+          extern std::vector<Point> recordedSpellPattern;
+          recordedSpellPattern = resampled;
+          
+          // Show preview
+          visualizeSpellPattern("New Spell", resampled);
+          
+          // Display save/discard prompt
+          tft.setTextSize(1);
+          tft.setTextColor(0x07E0);  // Green
+          tft.setCursor(10, 200);
+          tft.print("BTN1:Save");
+          tft.setTextColor(0xF800);  // Red
+          tft.setCursor(150, 200);
+          tft.print("BTN2:Discard");
+          
+          extern SpellRecordingState spellRecordingState;
+          spellRecordingState = SPELL_RECORD_PREVIEW;
+          ledOff();
+          LOG_DEBUG("Spell record: Preview (%d points)", resampled.size());
+          
           currentTrajectory.clear();
           currentState = WAITING_FOR_IR;
           readyToTrack = false;
@@ -587,13 +696,13 @@ void readCameraData() {
         
         // Check if we found a match
         std::vector<Point> normalized = normalizeTrajectory(currentTrajectory);
-        std::vector<Point> resampled = resampleTrajectory(normalized, 20);
+        std::vector<Point> resampled = resampleTrajectory(normalized, RESAMPLE_POINTS);
         float bestMatch = 0;
         const char* bestSpell = "Unknown";
         
         for (const auto& spell : spellPatterns) {
           std::vector<Point> spellNorm = normalizeTrajectory(spell.pattern);
-          std::vector<Point> spellResampled = resampleTrajectory(spellNorm, 20);
+          std::vector<Point> spellResampled = resampleTrajectory(spellNorm, RESAMPLE_POINTS);
           float similarity = calculateSimilarity(resampled, spellResampled);
           if (similarity > bestMatch) {
             bestMatch = similarity;
@@ -603,6 +712,7 @@ void readCameraData() {
         
         if (bestMatch >= MATCH_THRESHOLD) {
           // Spell detected - check if it's a nightlight control spell
+          
           
           // Check if this spell is configured for nightlight control
           bool isNightlightOnSpell = (NIGHTLIGHT_ON_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_ON_SPELL.c_str()) == 0);
@@ -623,25 +733,40 @@ void readCameraData() {
               ledNightlight(NIGHTLIGHT_BRIGHTNESS);
               LOG_DEBUG("Nightlight toggled ON");
             }
-            displaySpellName(bestSpell);
+            // Play random spell sound (1-5)
+            char soundFile[32];
+            snprintf(soundFile, sizeof(soundFile), "/sounds/spell%d.wav", random(1, 6));
+            playSound(soundFile);
             publishSpell(bestSpell);
           } else if (isNightlightOnSpell) {
             // Turn on nightlight mode
             ledNightlight(NIGHTLIGHT_BRIGHTNESS);
-            displaySpellName(bestSpell);
+            // Play random spell sound (1-5)
+            char soundFile[32];
+            snprintf(soundFile, sizeof(soundFile), "/sounds/spell%d.wav", random(1, 6));
+            playSound(soundFile);
+            displaySpellResult(bestSpell, resampled, bestMatch);
             publishSpell(bestSpell);
             LOG_DEBUG("Nightlight turned ON");
           } else if (isNightlightOffSpell) {
             // Turn off nightlight mode
             nightlightActive = false;
             ledOff();
-            displaySpellName(bestSpell);
+            // Play random spell sound (1-5)
+            char soundFile[32];
+            snprintf(soundFile, sizeof(soundFile), "/sounds/spell%d.wav", random(1, 6));
+            playSound(soundFile);
+            displaySpellResult(bestSpell, resampled, bestMatch);
             publishSpell(bestSpell);
             ledOnTime = 0;
             LOG_DEBUG("Nightlight turned OFF");
-          } else if (nightlightActive && (strcasecmp(bestSpell, "Raise") == 0 || strcasecmp(bestSpell, "Lower") == 0)) {
+          } else if (nightlightActive && 
+                     ((NIGHTLIGHT_RAISE_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_RAISE_SPELL.c_str()) == 0) || 
+                      (NIGHTLIGHT_LOWER_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_LOWER_SPELL.c_str()) == 0))) {
             // Nightlight brightness adjustment - Raise/Lower spells
-            if (strcasecmp(bestSpell, "Raise") == 0) {
+            bool isRaise = (NIGHTLIGHT_RAISE_SPELL.length() > 0 && strcasecmp(bestSpell, NIGHTLIGHT_RAISE_SPELL.c_str()) == 0);
+            
+            if (isRaise) {
               NIGHTLIGHT_BRIGHTNESS = constrain(NIGHTLIGHT_BRIGHTNESS + 50, 10, 255);
               LOG_DEBUG("Nightlight brightness increased to %d", NIGHTLIGHT_BRIGHTNESS);
             } else {
@@ -655,27 +780,38 @@ void readCameraData() {
             // Apply new brightness immediately
             ledNightlight(NIGHTLIGHT_BRIGHTNESS);
             
+            // Play random spell sound (1-5)
+            char soundFile[32];
+            snprintf(soundFile, sizeof(soundFile), "/sounds/spell%d.wav", random(1, 6));
+            playSound(soundFile);
+            
             // Show spell feedback
-            displaySpellName(bestSpell);
+            displaySpellResult(bestSpell, resampled, bestMatch);
             publishSpell(bestSpell);
           } else {
             // Regular spell - publish to MQTT and show random effect
+            // Play random spell sound (1-5)
+            char soundFile[32];
+            snprintf(soundFile, sizeof(soundFile), "/sounds/spell%d.wav", random(1, 6));
+            playSound(soundFile);
             publishSpell(bestSpell);
-            displaySpellName(bestSpell);
+            displaySpellResult(bestSpell, resampled, bestMatch);
             ledRandomEffect();  // Pick a random LED effect for variety
             ledOnTime = millis();  // Start LED effect timer
           }
         } else {
           // No match - blink red
+          displaySpellName("No Match");
           ledSolid("red");
           ledOnTime = millis();  // Start LED effect timer
-          displaySpellName("No Match");
+          playSound("/sounds/error.wav");  // Play error sound
         }
       } else {
         // Not enough movement - blink red
         LOG_DEBUG("Insufficient movement (%.1f px)\n", totalDistance);
         ledSolid("red");
         ledOnTime = millis();  // Start LED effect timer
+        playSound("/sounds/error.wav");  // Play error sound
         displaySpellName("No Match");
       }
       
@@ -698,7 +834,8 @@ void readCameraData() {
       } else {
         ledOff();
       }
-      clearDisplay();  // Clear entire trail from display
+      // Clear trail (idle background will be restored after any displayed message times out)
+      clearDisplay();
       lastX = -1;
       lastY = -1;
       irLostTime = 0;
@@ -737,4 +874,46 @@ void readCameraData() {
   }
   Serial.println();
 #endif
+}
+
+// Helper function to get current IR position for spell recording
+// Returns true if valid IR point is detected, false otherwise
+// Outputs: x and y coordinates in display space (0-239)
+bool getIRPosition(int& x, int& y) {
+  // Read IR data from camera
+  Wire.beginTransmission(PIXART_ADDR);
+  Wire.write(0x36);  // Register for IR tracking data
+  if (Wire.endTransmission() != 0) {
+    return false;  // I2C error
+  }
+  
+  Wire.requestFrom(PIXART_ADDR, 16);
+  if (Wire.available() < 16) {
+    return false;  // Not enough data
+  }
+  
+  // Read first blob (most prominent IR source)
+  byte data[16];
+  for (int i = 0; i < 16; i++) {
+    data[i] = Wire.read();
+  }
+  
+  // Parse coordinates from first blob
+  int xx = data[1];
+  int yy = data[2];
+  byte ss = data[3];
+  
+  int rawX = ((ss & 0x30) << 4) | xx;
+  int rawY = ((ss & 0xC0) << 2) | yy;
+  
+  // Check for invalid coordinates
+  if (rawX == 0x3FF || rawY == 0x3FF) {
+    return false;  // No IR source detected
+  }
+  
+  // Convert camera coordinates (0-1023) to display coordinates (0-239)
+  x = map(rawX, 0, 1023, 0, 239);
+  y = map(rawY, 0, 1023, 0, 239);
+  
+  return true;  // Valid position detected
 }

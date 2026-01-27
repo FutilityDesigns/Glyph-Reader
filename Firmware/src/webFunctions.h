@@ -51,6 +51,16 @@
 extern WiFiManager wm;
 
 //=====================================
+// Background Save Flags
+//=====================================
+
+/// Flag indicating settings need to be saved to NVS preferences
+extern bool pendingSaveToPreferences;
+
+/// Flag indicating custom spell renames need to be saved to SD card
+extern bool pendingSaveCustomSpellsToSD;
+
+//=====================================
 // WiFiManager Functions
 //=====================================
 
@@ -64,5 +74,12 @@ extern WiFiManager wm;
  * note: WiFiManager will automatically manage AP mode when WiFi is disconnected
  */
 bool initWM();
+
+/**
+ * Process background saves to NVS preferences
+ * Call this from main loop to handle deferred saves from web portal.
+ * Writes all changed settings to flash storage without blocking HTTP response.
+ */
+void processBackgroundSaves();
 
 #endif // WEBFUNCTIONS_H

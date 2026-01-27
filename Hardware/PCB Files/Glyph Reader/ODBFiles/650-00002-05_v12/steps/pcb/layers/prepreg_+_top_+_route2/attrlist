@@ -12,6 +12,6 @@ UNITS=MM
 .out_y_scale=1.000000
 .out_comp=0.000000
 .et_adjacency=508
-.layer_dielectric=0.8392
+.layer_dielectric=1.0392
 .dielectric_constant=4.5
 .loss_tangent=0.02

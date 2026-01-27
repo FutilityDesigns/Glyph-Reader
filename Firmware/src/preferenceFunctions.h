@@ -70,10 +70,13 @@ enum class PrefType {
     PREF_X(IR_LOSS_TIMEOUT,      INT,    "irLossTimeout")    \
     PREF_X(NIGHTLIGHT_ON_SPELL,  STRING, "NLon")    \
     PREF_X(NIGHTLIGHT_OFF_SPELL, STRING, "NLoff")   \
+    PREF_X(NIGHTLIGHT_RAISE_SPELL, STRING, "NLraise") \
+    PREF_X(NIGHTLIGHT_LOWER_SPELL, STRING, "NLlower") \
     PREF_X(NIGHTLIGHT_BRIGHTNESS, INT,   "NLbright") \
     PREF_X(LATITUDE,             STRING, "latitude")    \
     PREF_X(LONGITUDE,            STRING, "longitude")    \
     PREF_X(TIMEZONE_OFFSET,      INT,    "tzOffset")    \
+    PREF_X(SOUND_ENABLED,        BOOL,   "soundEn")     \
 
 //=====================================
 // Preference Key Enumeration
@@ -169,13 +172,18 @@ extern int GESTURE_TIMEOUT;       ///< Maximum milliseconds for gesture (default
 extern int IR_LOSS_TIMEOUT;       ///< Milliseconds before IR loss confirmed (default 200)
 
 // Nightlight Configuration
-extern String NIGHTLIGHT_ON_SPELL;   ///< Spell name to activate nightlight (e.g., "Illuminate")
-extern String NIGHTLIGHT_OFF_SPELL;  ///< Spell name to deactivate nightlight (e.g., "Dark")
-extern int NIGHTLIGHT_BRIGHTNESS;    ///< Nightlight brightness (0-255, default 150)
+extern String NIGHTLIGHT_ON_SPELL;    ///< Spell name to activate nightlight (e.g., "Illuminate")
+extern String NIGHTLIGHT_OFF_SPELL;   ///< Spell name to deactivate nightlight (e.g., "Dark")
+extern String NIGHTLIGHT_RAISE_SPELL; ///< Spell name to increase brightness (e.g., "Raise")
+extern String NIGHTLIGHT_LOWER_SPELL; ///< Spell name to decrease brightness (e.g., "Lower")
+extern int NIGHTLIGHT_BRIGHTNESS;     ///< Nightlight brightness (0-255, default 150)
 
 // Location Configuration (for sunrise/sunset calculations)
 extern String LATITUDE;           ///< Device latitude in decimal degrees (e.g., "37.7749")
 extern String LONGITUDE;          ///< Device longitude in decimal degrees (e.g., "-122.4194")
 extern int TIMEZONE_OFFSET;       ///< Timezone offset from UTC in seconds (e.g., -28800 for PST)
+
+// Sound Configuration
+extern bool SOUND_ENABLED;        ///< Enable/disable sound effects (default false)
 
 #endif // PREFERNCE_FUNCTIONS_H

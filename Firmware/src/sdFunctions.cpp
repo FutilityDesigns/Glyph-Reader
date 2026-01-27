@@ -42,11 +42,19 @@
 #include <map>
 #include <ArduinoJson.h>
 
+// Configure whether the card-detect switch is active-low (pulls to GND when card present)
+#ifndef SD_DETECT_ACTIVE_LOW
+#define SD_DETECT_ACTIVE_LOW 1
+#endif
+
 // Create separate SPI instance for SD card
 SPIClass sdSPI(HSPI);  // Use HSPI bus for SD card
 
 // Map to track which spells have image files
 std::map<String, bool> spellImageAvailable;
+
+// Variable to track number of custom spells loaded
+int numCustomSpells = 0;
 
 // Initialize SD card
 bool initSD() {
@@ -99,17 +107,21 @@ bool initSD() {
 bool isCardPresent() {
 #ifdef NO_SD_SWITCH
   // No physical switch - try to read card directly
+  // Caller should ensure SD.begin() has been called before relying on cardType
   uint8_t cardType = SD.cardType();
   return cardType != CARD_NONE;
 #else
   // Check physical switch first
-  if (digitalRead(SD_DETECT) != LOW) {
-    return false;  // Switch indicates no card
-  }
-  
-  // Switch says card is present, verify by reading card
-  uint8_t cardType = SD.cardType();
-  return cardType != CARD_NONE;
+  // Read detect pin (with debounce) and log state for debugging
+  int state1 = digitalRead(SD_DETECT);
+  delay(5);
+  int state2 = digitalRead(SD_DETECT);
+  int state = (state1 == state2) ? state1 : digitalRead(SD_DETECT);
+  LOG_DEBUG("SD detect pin %d read values: %d,%d => %d (SD_DETECT_ACTIVE_LOW=%d)", SD_DETECT, state1, state2, state, SD_DETECT_ACTIVE_LOW);
+  bool present = SD_DETECT_ACTIVE_LOW ? (state == LOW) : (state == HIGH);
+  // Do NOT call SD.cardType() here because SD.begin() may not have been called yet.
+  // initSD() will perform SD initialization and then check card type after SD.begin().
+  return present;
 #endif
 }
 
@@ -513,6 +525,7 @@ bool loadCustomSpells() {
       
       if (newSpell.pattern.size() > 0) {
         spellPatterns.push_back(newSpell);
+        numCustomSpells++;
         LOG_DEBUG("  Added custom spell '%s' with %d points", name, newSpell.pattern.size());
       } else {
         LOG_DEBUG("  Skipping custom spell '%s' - no pattern defined", name);

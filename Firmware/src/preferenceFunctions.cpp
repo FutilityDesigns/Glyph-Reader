@@ -44,10 +44,13 @@ int GESTURE_TIMEOUT;
 int IR_LOSS_TIMEOUT;
 String NIGHTLIGHT_ON_SPELL;
 String NIGHTLIGHT_OFF_SPELL;
+String NIGHTLIGHT_RAISE_SPELL;
+String NIGHTLIGHT_LOWER_SPELL;
 int NIGHTLIGHT_BRIGHTNESS;
 String LATITUDE;
 String LONGITUDE;
 int TIMEZONE_OFFSET;
+bool SOUND_ENABLED;
 
 // Define preference specifications
 static const PrefSpec PREF_SPECS[] = {
@@ -228,12 +231,16 @@ void loadPreferences() {
     
     // Nightlight Control Spells
     NIGHTLIGHT_ON_SPELL = getPrefString(PrefKey::NIGHTLIGHT_ON_SPELL, "");  // No default spell
-    NIGHTLIGHT_OFF_SPELL = getPrefString(PrefKey::NIGHTLIGHT_OFF_SPELL, "");  // No default spell    NIGHTLIGHT_BRIGHTNESS = getPrefInt(PrefKey::NIGHTLIGHT_BRIGHTNESS, 150);  // Default medium brightness}
-    
+    NIGHTLIGHT_OFF_SPELL = getPrefString(PrefKey::NIGHTLIGHT_OFF_SPELL, "");  // No default spell
+    NIGHTLIGHT_RAISE_SPELL = getPrefString(PrefKey::NIGHTLIGHT_RAISE_SPELL, "Raise");  // Default "Raise"
+    NIGHTLIGHT_LOWER_SPELL = getPrefString(PrefKey::NIGHTLIGHT_LOWER_SPELL, "Lower");  // Default "Lower"
     NIGHTLIGHT_BRIGHTNESS = getPrefInt(PrefKey::NIGHTLIGHT_BRIGHTNESS, 150);  // Default medium brightness
     
     // Location settings (empty = not configured, will fetch from ipapi.co on boot)
     LATITUDE = getPrefString(PrefKey::LATITUDE, "");
     LONGITUDE = getPrefString(PrefKey::LONGITUDE, "");
     TIMEZONE_OFFSET = getPrefInt(PrefKey::TIMEZONE_OFFSET, 0);
+    
+    // Sound settings (default disabled - user must enable via web portal)
+    SOUND_ENABLED = getPrefBool(PrefKey::SOUND_ENABLED, false);
 }

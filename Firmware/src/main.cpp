@@ -39,7 +39,9 @@
 #include "led_control.h"          // NeoPixel LED control and effects
 #include "screenFunctions.h"      // GC9A01A display operations
 #include "cameraFunctions.h"      // Pixart IR camera I2C communication
-#include "buttonFunctions.h"    // Button handling
+#include "buttonFunctions.h"      // Button handling
+#include "customSpellFunctions.h" // Custom spell recording
+#include "audioFunctions.h"       // I2S audio playback
 
 // Spell recognition system
 #include "spell_patterns.h"       // Predefined gesture patterns
@@ -87,6 +89,8 @@ bool inSettingsMode = false;      // Are we in settings menu?
 bool editingSettingValue = false; // Are we currently editing a value?
 int currentSettingIndex = 0;      // Which setting are we viewing/editing?
 int settingValueIndex = 0;        // Current value option for multi-choice settings
+bool inSpellRecordingMode = false; // Are we in spell recording mode?
+bool isRecordingCustomSpell = false; // Is custom spell recording active (uses normal tracking)?
 
 
 //=====================================
@@ -135,7 +139,7 @@ void setup() {
   delay(1000); // Give serial time to initialize
   
   LOG_DEBUG("\n\n=================================");
-  LOG_DEBUG("ESP32-S3 Interactive Wand");
+  LOG_DEBUG("Glyph Reader Startup");
   LOG_DEBUG("=================================\n");
   
   //-----------------------------------
@@ -147,8 +151,6 @@ void setup() {
   // Initialize screen (GC9A01A round LCD, 240x240)
   screenInit();
   
-  // Turn on backlight for user feedback
-  backlightOn();
   
   // Update setup display with display status
   updateSetupDisplay(step, "Display", "pass");
@@ -201,7 +203,46 @@ void setup() {
   initSpellPatterns();
   
   //-----------------------------------
-  // Step 6: WiFi Configuration
+  // Step 6: SD Card Initialization
+  //-----------------------------------
+  // Initialize SD card BEFORE WiFi Manager so custom spell names are loaded
+  // and available for the web portal dropdowns
+  updateSetupDisplay(step, "SD Card", "init");
+  bool sdCardReady = false;
+  
+  if (initSD()) {
+    updateSetupDisplay(step, "SD Card", "pass");
+    listDirectory("/", 0);  // List root directory contents
+    sdCardReady = true;
+  } else {
+    updateSetupDisplay(step, "SD Card", "fail");
+  }
+  step++;
+  
+  //-----------------------------------
+  // Step 7: Load Custom Spells
+  //-----------------------------------
+  // Apply custom spell configurations from SD card (if present)
+  // This allows users to modify/add/replace spells via spells.json
+  // MUST be done before WiFi Manager so web portal dropdowns show renamed spells
+  if (sdCardReady) {
+    applyCustomSpells();
+  }
+
+#ifdef SHOW_PATTERNS_ON_STARTUP  
+  // Visualize spell patterns on screen for debugging
+  // Shows how each spell is defined after normalization/resampling
+  showSpellPatterns();
+#endif
+  
+  // Check for spell image files 
+  // Validates that .bmp image files exist on SD card for each spell
+  if (sdCardReady) {
+    checkSpellImages();
+  }
+  
+  //-----------------------------------
+  // Step 8: WiFi Configuration
   //-----------------------------------
   // Setup WiFi with WiFiManager
   updateSetupDisplay(step, "WiFi Manager", "init");
@@ -214,7 +255,7 @@ void setup() {
     updateSetupDisplay(step, "WiFi Manager", "pass");
     
     //-----------------------------------
-    // Step 6a: Configure NTP Time Sync
+    // Step 8a: Configure NTP Time Sync
     //-----------------------------------
     // Configure NTP time synchronization for accurate date/time
     // This is critical for sunrise/sunset calculations
@@ -235,7 +276,7 @@ void setup() {
     }
     
     //-----------------------------------
-    // Step 6b: Fetch Location Data (if not configured)
+    // Step 8b: Fetch Location Data (if not configured)
     //-----------------------------------
     // If latitude/longitude not set, fetch from ipapi.co
     if (LATITUDE.length() == 0 || LONGITUDE.length() == 0) {
@@ -262,7 +303,7 @@ void setup() {
     }
     
     //-----------------------------------
-    // Step 6c: mDNS Responder
+    // Step 8c: mDNS Responder
     //-----------------------------------
     // Configure mDNS for easy access via http://glyphreader.local
     if (!MDNS.begin("glyphreader")) {
@@ -279,7 +320,7 @@ void setup() {
   step++;
   
   //-----------------------------------
-  // Step 7: MQTT Client ID Generation
+  // Step 9: MQTT Client ID Generation
   //-----------------------------------
   // Generate unique client ID from MAC address
   // Format: GlyphReader-XXXXXX (last 3 bytes of MAC)
@@ -289,7 +330,7 @@ void setup() {
   LOG_DEBUG("Device ID: %s", mqttClientId);
   
   //-----------------------------------
-  // Step 8: MQTT Configuration
+  // Step 10: MQTT Configuration
   //-----------------------------------
   // Setup MQTT (only if WiFi connected AND MQTT host is configured)
   updateSetupDisplay(step, "MQTT", "init");
@@ -310,23 +351,7 @@ void setup() {
   step++;
   
   //-----------------------------------
-  // Step 9: SD Card Initialization
-  //-----------------------------------
-  // Initialize SD card
-  updateSetupDisplay(step, "SD Card", "init");
-  bool sdCardReady = false;
-  
-  if (initSD()) {
-    updateSetupDisplay(step, "SD Card", "pass");
-    listDirectory("/", 0);  // List root directory contents
-    sdCardReady = true;
-  } else {
-    updateSetupDisplay(step, "SD Card", "fail");
-  }
-  step++;
-
-  //-----------------------------------
-  // Step 10: I2C Bus Initialization
+  // Step 11: I2C Bus Initialization
   //-----------------------------------
   // Initialize I2C
   updateSetupDisplay(step, "Camera", "init");
@@ -339,27 +364,6 @@ void setup() {
   
   // Scan for I2C devices (debug/diagnostic)
   scanI2C();
-  
-  //-----------------------------------
-  // Step 11: Load Custom Spells
-  //-----------------------------------
-  // Apply custom spell configurations from SD card (if present)
-  // This allows users to modify/add/replace spells via spells.json
-  if (sdCardReady) {
-    applyCustomSpells();
-  }
-
-#ifdef SHOW_PATTERNS_ON_STARTUP  
-  // Visualize spell patterns on screen for debugging
-  // Shows how each spell is defined after normalization/resampling
-  showSpellPatterns();
-#endif
-  
-  // Check for spell image files 
-  // Validates that .bmp image files exist on SD card for each spell
-  if (sdCardReady) {
-    checkSpellImages();
-  }
   
   //-----------------------------------
   // Step 12: Camera Initialization
@@ -396,6 +400,22 @@ void setup() {
   LOG_DEBUG("buttons complete");
   
   //-----------------------------------
+  // Step 14: Audio Initialization
+  //-----------------------------------
+  // Initialize I2S audio (MAX98357A amplifier)
+  updateSetupDisplay(step, "Audio", "init");
+  
+  if (initAudio()) {
+    updateSetupDisplay(step, "Audio", "pass");
+    LOG_DEBUG("Audio system ready");
+    playSound("/sounds/startup.wav");
+  } else {
+    updateSetupDisplay(step, "Audio", "fail");
+    LOG_ALWAYS("Audio initialization failed - sound effects disabled");
+  }
+  step++;
+  
+  //-----------------------------------
   // Setup Complete
   //-----------------------------------
   // Artificial delay to let user see final status
@@ -427,6 +447,10 @@ void loop() {
   // Processes HTTP requests, serves configuration pages
   // WiFiManager automatically manages AP mode when WiFi is disconnected
   wm.process();
+  
+  // Process any pending background saves from web portal
+  // This defers slow NVS/SD writes until after HTTP response is sent
+  processBackgroundSaves();
 
   //-----------------------------------
   // Button Processing
@@ -459,7 +483,7 @@ void loop() {
   // Camera Data Acquisition
   //-----------------------------------
   // Read camera data at high speed (aiming for ~100Hz)
-  // Skip camera processing when in settings mode
+  // Skip camera processing when in settings mode (still process during spell recording)
   uint32_t currentTime = millis();
   if (!inSettingsMode && currentTime - lastReadTime >= 10) { // Read every 10ms (100Hz)
     readCameraData();  // Process IR tracking and gesture recognition
@@ -478,7 +502,8 @@ void loop() {
   if (screenSpellOnTime > 0 && (millis() - screenSpellOnTime >= screenSpellDuration)) {
     // Clear spell name after 3 seconds
     screenSpellOnTime = 0;
-    clearDisplay();
+    // Restore idle background after spell display timeout
+    restoreIdleBackground();
   }
 
   // Check if the screen has been on for too long without activity

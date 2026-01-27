@@ -73,7 +73,7 @@
  * Currently disabled in production builds to reduce serial overhead.
  * Can be enabled conditionally based on runtime debug flag if needed.
  */
-//#define LOG_DEBUG(format, ...) do { if (debug) Serial.printf("[DEBUG] " format "\n", ##__VA_ARGS__); } while(0)
+#define LOG_DEBUG(format, ...) ((void)0)
 #endif
 
 //=====================================
@@ -140,5 +140,7 @@ extern bool inSettingsMode;         // True if currently in settings menu
 extern bool editingSettingValue;    // True if currently editing a setting value
 extern int currentSettingIndex;     // Index of currently selected setting
 extern int settingValueIndex;       // Index of currently selected value within setting
+extern bool inSpellRecordingMode;   // True if currently recording a custom spell
+extern bool isRecordingCustomSpell; // True if custom spell recording is active (uses normal tracking)
 
 #endif // WAND_COMMANDER_H

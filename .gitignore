@@ -14,3 +14,6 @@ Firmware/.pio/*
 Firmware/.vscode/*
 Firmware/.venv/*
 Tools/.venv/*
+*.docx
+*.af
+*.png

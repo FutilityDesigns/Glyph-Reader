@@ -84,6 +84,12 @@ void screenInit();
 void drawIRPoint(int x, int y, bool isActive = true);
 
 /**
+ * Clear IR trail state
+ * Resets the last IR position to prevent trail lines from old positions
+ */
+void clearIRTrail();
+
+/**
  * Display spell name and load associated image from SD card
  * Shows spell name text and attempts to load matching .bmp image file.
  * Image filename format: "<spellname>.bmp" (e.g., "ignite.bmp")
@@ -144,6 +150,17 @@ bool displayImageFromSD(const char* filename, int16_t x = 0, int16_t y = 0);
  */
 void visualizeSpellPattern(const char* name, const std::vector<Point>& pattern);
 
+/**
+ * Visualize spell match comparison (debug)
+ * Overlays the matched spell pattern and user trajectory for debugging.
+ * Only active when SHOW_PATTERNS_ON_STARTUP is defined.
+ * name: Spell name
+ * spellPattern: The matched spell pattern (resampled)
+ * userTrajectory: The user's drawn trajectory (resampled)
+ * similarity: The calculated similarity score (0.0-1.0)
+ */
+void visualizeMatchComparison(const char* name, const std::vector<Point>& spellPattern, const std::vector<Point>& userTrajectory, float similarity);
+
 //=====================================
 // Settings Menu Display
 //=====================================
@@ -157,5 +174,33 @@ void visualizeSpellPattern(const char* name, const std::vector<Point>& pattern);
  * isEditing: True if currently editing the value, false if browsing settings
  */
 void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing);
+
+/**
+ * Display a centered error message on screen
+ * Shows the message in red with two-line support (split at space)
+ * message: Error message to display
+ */
+void displayError(const char* message);
+
+/**
+ * Display a centered message on screen
+ * Shows the message in the specified color
+ * message: Message to display
+ * color: RGB565 color for the text
+ */
+void displayMessage(const char* message, uint16_t color);
+
+/**
+ * Show ready-state background
+ * Fills the screen with a green background and preserves border circle.
+ * Used to indicate READY state (user should hold still to begin tracking).
+ */
+void showReadyBackground();
+
+/**
+ * Restore idle background
+ * Returns the display to default idle appearance (black with border circle).
+ */
+void restoreIdleBackground();
 
 #endif // SCREEN_FUNCTIONS_H

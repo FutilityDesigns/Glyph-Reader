@@ -46,4 +46,18 @@ bool initCamera();
  */
 void readCameraData();
 
+/**
+ * Get current IR position for spell recording
+ * Helper function that reads camera data and returns the current IR position.
+ * Used by custom spell recording state machine.
+ * param x Output: X coordinate in display space (0-239)
+ * param y Output: Y coordinate in display space (0-239)
+ * return true if valid IR point detected, false otherwise
+ */
+bool getIRPosition(int& x, int& y);
+
+// Constants exported for spell recording
+#define MAX_TRAJECTORY_POINTS 1000
+#define NO_MOVEMENT_TIMEOUT 500
+
 #endif // CAMERA_FUNCTIONS_H

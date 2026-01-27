@@ -43,7 +43,17 @@
  * Lower values = more lenient matching, more false positives.
  * Current: 0.70 (70% similarity required)
  */
-#define MATCH_THRESHOLD 0.70
+#define MATCH_THRESHOLD 0.75
+
+/**
+ * Number of points to resample trajectories to for matching
+ * Both spell patterns and user gestures are resampled to this fixed count.
+ * Higher values = more detail, more sensitive to noise/shakiness
+ * Lower values = smoother, more forgiving, less detail
+ * Recommended range: 20-50 points
+ * Current: 50 points
+ */
+#define RESAMPLE_POINTS 100
 
 //=====================================
 // Trajectory Processing Functions

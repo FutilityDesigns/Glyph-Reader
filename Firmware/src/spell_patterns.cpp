@@ -42,6 +42,7 @@
 */
 
 #include "spell_patterns.h"
+#include "spell_matching.h"
 #include "sdFunctions.h"
 #include <Arduino.h>
 #include <cmath>
@@ -339,13 +340,13 @@ void initSpellPatterns() {
   };
   spellPatterns.push_back(dark);
   
-  // Normalize and resample all patterns to 40 points for consistent matching
+  // Normalize and resample all patterns to 50 points for consistent matching
   // This allows patterns to be defined with a small number of key points,
   // then extrapolated to match the resolution used for recorded gestures
-  Serial.println("Resampling spell patterns to 40 points...");
+  Serial.println("Resampling spell patterns to 50 points...");
   for (auto& spell : spellPatterns) {
     std::vector<Point> normalized = normalizeTrajectory(spell.pattern);
-    spell.pattern = resampleTrajectory(normalized, 40);
+    spell.pattern = resampleTrajectory(normalized, RESAMPLE_POINTS);
   }
   
   Serial.printf("Loaded and resampled %d spell patterns\n", spellPatterns.size());

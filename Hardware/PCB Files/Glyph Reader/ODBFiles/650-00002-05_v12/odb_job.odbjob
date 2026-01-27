@@ -1,7 +1,7 @@
 {
     "Header": {
         "Comment": "All values are metric (mm)",
-        "CreationDate": "2026-01-05T21:12:29Z",
+        "CreationDate": "2026-01-27T23:28:59Z",
         "GenerationSoftware": {
             "Application": "Fusion Electronics",
             "Vendor": "Autodesk",
@@ -10,15 +10,15 @@
         "Part": "Single"
     },
     "Overall": {
-        "BoardThickness": 1,
+        "BoardThickness": 1.2,
         "LayerNumber": 2,
         "Name": {
-            "ProjectId": "Glyph Reader Rev 1 v37"
+            "ProjectId": "Glyph Reader Rev 1 v20"
         },
         "Owner": "Christopher Egan <chris.egan@arctevity.com>",
         "Size": {
-            "X": 76.2,
-            "Y": 76.2
+            "X": 75.519638,
+            "Y": 75.519638
         }
     }
 }

@@ -8,6 +8,7 @@ This file holds all functions related to the buttons
 #include "preferenceFunctions.h"
 #include "screenFunctions.h"
 #include "spell_patterns.h"
+#include "customSpellFunctions.h"
 
 Button2 button1;
 Button2 button2;
@@ -49,9 +50,30 @@ void click(Button2& btn) {
     switch (btn.getPin()) {
         case BUTTON_1_PIN:
             // Handle button 1 click
+            if (spellRecordingState == SPELL_RECORD_PREVIEW) {
+                // In spell recording preview - save the spell
+                if (saveRecordedSpell()) {
+                    // Show success message
+                    displayMessage("Spell Saved!", 0x07E0);  // Green
+                    delay(1500);
+                }
+                spellRecordingState = SPELL_RECORD_COMPLETE;
+                exitSpellRecordingMode();
+                enterSettingsMode();  // Return to settings
+                return;
+            }
+            
             if (inSettingsMode) {
                 // In settings mode: Button 1 selects/confirms
                 if (!editingSettingValue) {
+                    // Check if this is the "Add Spell" setting (index 4)
+                    if (currentSettingIndex == 4) {
+                        // Enter spell recording mode
+                        inSettingsMode = false;
+                        enterSpellRecordingMode();
+                        return;
+                    }
+                    
                     // Not editing - enter edit mode for this setting
                     editingSettingValue = true;
                     settingValueIndex = getCurrentValueIndex(currentSettingIndex);
@@ -77,6 +99,14 @@ void click(Button2& btn) {
             break;
         case BUTTON_2_PIN:
             // Handle button 2 click
+            if (spellRecordingState == SPELL_RECORD_PREVIEW) {
+                // In spell recording preview - discard and return to settings
+                spellRecordingState = SPELL_RECORD_COMPLETE;
+                exitSpellRecordingMode();
+                enterSettingsMode();
+                return;
+            }
+            
             if (inSettingsMode) {
                 // In settings mode: Button 2 navigates
                 if (editingSettingValue) {
@@ -141,6 +171,10 @@ void longClickDetected(Button2& btn) {
             break;
         case BUTTON_2_PIN:
             LOG_DEBUG("Button 2 long click detected");
+            if (inSettingsMode) {
+                LOG_DEBUG("Exiting settings mode immediately");
+                exitSettingsMode();
+            }
             break;
         default:
             break;
@@ -153,12 +187,8 @@ void longClick(Button2& btn) {
             LOG_DEBUG("Button 1 long click executed");
             break;
         case BUTTON_2_PIN:
-            if (inSettingsMode) {
-                LOG_DEBUG("Button 2 long click - exiting settings mode");
-                exitSettingsMode();
-            } else {
-                LOG_DEBUG("Button 2 long click executed");
-            }
+            LOG_DEBUG("Button 2 long click executed");
+            // Settings mode exit now happens in longClickDetected for immediate feedback
             break;
         default:
             break;
@@ -206,10 +236,10 @@ void exitSettingsMode() {
 
 /**
  * Get total number of configurable settings
- * Currently: 2 (Nightlight ON spell, Nightlight OFF spell)
+ * Currently: 5 (Nightlight ON, OFF, RAISE, LOWER spells + Add Spell)
  */
 int getSettingsCount() {
-    return 2;  // NL ON, NL OFF
+    return 5;  // NL ON, NL OFF, NL RAISE, NL LOWER, ADD SPELL
 }
 
 /**
@@ -217,7 +247,10 @@ int getSettingsCount() {
  * Returns the number of spells + 1 (for "Disabled" option)
  */
 int getSettingValueCount(int settingIndex) {
-    // All settings use spell list + "Disabled"
+    if (settingIndex == 4) {
+        return 1;  // "Add Spell" is just an action, no values
+    }
+    // All other settings use spell list + "Disabled"
     return spellPatterns.size() + 1;
 }
 
@@ -227,6 +260,10 @@ int getSettingValueCount(int settingIndex) {
  * Returns 0 if disabled or spell not found.
  */
 int getCurrentValueIndex(int settingIndex) {
+    if (settingIndex == 4) {
+        return 0;  // "Add Spell" has no value
+    }
+    
     String currentSpell;
     
     switch (settingIndex) {
@@ -235,6 +272,12 @@ int getCurrentValueIndex(int settingIndex) {
             break;
         case 1:  // Nightlight OFF spell
             currentSpell = NIGHTLIGHT_OFF_SPELL;
+            break;
+        case 2:  // Nightlight RAISE spell
+            currentSpell = NIGHTLIGHT_RAISE_SPELL;
+            break;
+        case 3:  // Nightlight LOWER spell
+            currentSpell = NIGHTLIGHT_LOWER_SPELL;
             break;
         default:
             return 0;  // Invalid setting
@@ -284,6 +327,16 @@ void saveSettingValue(int settingIndex, int valueIndex) {
             NIGHTLIGHT_OFF_SPELL = spellName;
             setPref(PrefKey::NIGHTLIGHT_OFF_SPELL, spellName);
             LOG_DEBUG("Saved Nightlight OFF spell: %s", spellName.c_str());
+            break;
+        case 2:  // Nightlight RAISE spell
+            NIGHTLIGHT_RAISE_SPELL = spellName;
+            setPref(PrefKey::NIGHTLIGHT_RAISE_SPELL, spellName);
+            LOG_DEBUG("Saved Nightlight RAISE spell: %s", spellName.c_str());
+            break;
+        case 3:  // Nightlight LOWER spell
+            NIGHTLIGHT_LOWER_SPELL = spellName;
+            setPref(PrefKey::NIGHTLIGHT_LOWER_SPELL, spellName);
+            LOG_DEBUG("Saved Nightlight LOWER spell: %s", spellName.c_str());
             break;
         default:
             LOG_DEBUG("Invalid setting index: %d", settingIndex);
