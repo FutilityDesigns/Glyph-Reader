@@ -1,0 +1,23 @@
+UNITS=MM
+ID=93
+#
+#Num Features
+#
+F 3
+#
+#Feature symbol names
+#
+$0 rect6350x2514.6
+$1 rect2997.2x1092.2
+#
+#Feature attribute names
+#
+@0 .pad_usage
+@1 .smd
+
+#
+#Layer features
+#
+P 3.429 -0.0889 0 P 0 0;;ID=0
+P 129.8956 3.2606 1 P 0 2;0=0,1;ID=4
+P 129.8956 1.2606 1 P 0 2;0=0,1;ID=7

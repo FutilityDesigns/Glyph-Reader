@@ -1,0 +1,24 @@
+{
+    "Header": {
+        "Comment": "All values are metric (mm)",
+        "CreationDate": "2026-01-29T15:15:44Z",
+        "GenerationSoftware": {
+            "Application": "Fusion Electronics",
+            "Vendor": "Autodesk",
+            "Version": "9.7.0"
+        },
+        "Part": "Single"
+    },
+    "Overall": {
+        "BoardThickness": 1.6608,
+        "LayerNumber": 2,
+        "Name": {
+            "ProjectId": "Wand LED Board Rev1 v12"
+        },
+        "Owner": "Christopher Egan <chris.egan@arctevity.com>",
+        "Size": {
+            "X": 131.5466,
+            "Y": 6.1214
+        }
+    }
+}

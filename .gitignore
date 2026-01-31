@@ -17,3 +17,11 @@ Tools/.venv/*
 *.docx
 *.af
 *.png
+Firmware/images/Old Images/*
+Firmware/images/renamed images/*
+Firmware/images/Old Images/
+Firmware/images/renamed images/
+Firmware/custom sd card.zip
+VERSIONING.md
+scripts/*
+Firmware/scripts/*

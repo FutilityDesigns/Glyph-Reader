@@ -104,6 +104,15 @@ enum GestureState {
 /// Current state of the gesture detection state machine
 GestureState currentState = WAITING_FOR_IR;
 
+/**
+ * Check if camera is actively tracking (IR detected)
+ * Used by main loop to determine camera polling rate.
+ * Fast polling (100Hz) when tracking, slow polling (20Hz) when idle.
+ */
+bool isTrackingActive() {
+  return (currentState == READY || currentState == RECORDING);
+}
+
 //=====================================
 // Tracking Variables
 //=====================================
@@ -672,10 +681,10 @@ void readCameraData() {
           // Display save/discard prompt
           tft.setTextSize(1);
           tft.setTextColor(0x07E0);  // Green
-          tft.setCursor(10, 200);
+          tft.setCursor(100, 210);
           tft.print("BTN1:Save");
           tft.setTextColor(0xF800);  // Red
-          tft.setCursor(150, 200);
+          tft.setCursor(100, 190);
           tft.print("BTN2:Discard");
           
           extern SpellRecordingState spellRecordingState;

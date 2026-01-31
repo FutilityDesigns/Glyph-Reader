@@ -1,2 +1,2 @@
 UNITS=MM
-.board_thickness = 0.8608
+.board_thickness = 1.0608

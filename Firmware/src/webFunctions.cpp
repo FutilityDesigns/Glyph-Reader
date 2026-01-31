@@ -61,9 +61,83 @@
 #include "customSpellFunctions.h"
 #include "sdFunctions.h"
 #include <cctype>
+#include "screenFunctions.h"
+#include "version.h"
 
 // WiFiManager instance
 WiFiManager wm;
+
+/**
+ * Find the least congested WiFi channel for AP mode
+ * Scans nearby networks and counts how many are on each channel.
+ * Returns the least congested of channels 1, 6, or 11 (non-overlapping 2.4GHz channels).
+ * 
+ * return Best channel to use (1, 6, or 11)
+ */
+int findBestWiFiChannel() {
+    LOG_DEBUG("Scanning for WiFi networks to find best AP channel...");
+    
+    // Fully reset WiFi state before scanning to avoid mode conflicts
+    WiFi.disconnect(true);  // Disconnect and clear credentials from RAM
+    WiFi.mode(WIFI_OFF);    // Turn off WiFi completely
+    delay(100);             // Let hardware settle
+    
+    // Initialize WiFi in station mode for scanning
+    WiFi.mode(WIFI_STA);
+    delay(100);             // Let STA mode initialize
+    
+    int numNetworks = WiFi.scanNetworks(false, true);  // Don't block, show hidden
+    LOG_DEBUG("Found %d networks", numNetworks);
+    
+    if (numNetworks <= 0) {
+        LOG_DEBUG("No networks found, defaulting to channel 6");
+        return 6;  // Default to channel 6 if scan fails
+    }
+    
+    // Count networks on each channel (channels 1-13 for 2.4GHz)
+    int channelCounts[14] = {0};  // Index 0 unused, 1-13 for channels
+    
+    for (int i = 0; i < numNetworks; i++) {
+        int channel = WiFi.channel(i);
+        if (channel >= 1 && channel <= 13) {
+            // Weight adjacent channels too since they cause interference
+            // Channels overlap: 1-5 overlap with 1, 4-8 overlap with 6, 9-13 overlap with 11
+            channelCounts[channel]++;
+            LOG_DEBUG("  Network '%s' on channel %d (RSSI: %d)", 
+                      WiFi.SSID(i).c_str(), channel, WiFi.RSSI(i));
+        }
+    }
+    
+    // Calculate interference scores for non-overlapping channels (1, 6, 11)
+    // Include adjacent channel interference (±2 channels cause some interference)
+    int score1 = channelCounts[1] * 3 + channelCounts[2] * 2 + channelCounts[3];
+    int score6 = channelCounts[5] + channelCounts[6] * 3 + channelCounts[7] * 2 + channelCounts[8];
+    int score11 = channelCounts[9] + channelCounts[10] * 2 + channelCounts[11] * 3 + channelCounts[12] + channelCounts[13];
+    
+    LOG_DEBUG("Channel scores - Ch1: %d, Ch6: %d, Ch11: %d", score1, score6, score11);
+    
+    // Clean up scan results and reset WiFi state for AP mode
+    WiFi.scanDelete();
+    WiFi.disconnect(true);  // Clear any connection state
+    WiFi.mode(WIFI_OFF);    // Turn off WiFi to reset state completely
+    delay(100);             // Allow hardware to fully reset before WiFiManager takes over
+    
+    // Pick channel with lowest score
+    int bestChannel = 6;  // Default
+    int lowestScore = score6;
+    
+    if (score1 < lowestScore) {
+        bestChannel = 1;
+        lowestScore = score1;
+    }
+    if (score11 < lowestScore) {
+        bestChannel = 11;
+        lowestScore = score11;
+    }
+    
+    LOG_DEBUG("Selected channel %d (score: %d)", bestChannel, lowestScore);
+    return bestChannel;
+}
 
 // Flags for background saving
 bool pendingSaveToPreferences = false;
@@ -87,24 +161,26 @@ char longitudeBuffer[20] = "";
 char timezoneBuffer[10] = "";
 
 //Custom Text Parameters to explain each variable
-WiFiManagerParameter custom_Header_Text("<h1>Glyph Reader Settings</h1>");
-WiFiManagerParameter custom_MQTT_Text("<p>Enter your MQTT Broker settings below:</p>");
+// Note: custom_Header_Text is initialized in LoadCustomParameters() to include version
+WiFiManagerParameter* custom_Header_Text = nullptr;
+WiFiManagerParameter custom_MQTT_Text("<div class='settings-group'><h2>MQTT Broker Settings</h2><p>Enter your MQTT Broker settings below:</p>");
 WiFiManagerParameter custom_Topic_Text("<p>MQTT Topic to publish recognized spells</p>");
-WiFiManagerParameter custom_Nightlight_Header_Text("<h2>Nightlight Configuration</h2>");
+WiFiManagerParameter custom_Nightlight_Header_Text("</div><div class='settings-group'><h2>Nightlight Configuration</h2>");
 WiFiManagerParameter custom_Nightlight_Text("<p>Select spells to turn nightlight on/off. When active, LEDs return to nightlight instead of turning off.</p>");
-WiFiManagerParameter custom_Location_Header_Text("<h2>Location Override</h2>");
+WiFiManagerParameter custom_Location_Header_Text("</div><div class='settings-group'><h2>Location Override</h2>");
 WiFiManagerParameter custom_Location_Text("<p>Override auto-detected location for sunrise/sunset calculations.</p>");
-WiFiManagerParameter custom_Sound_Header_Text("<h2>Sound Settings</h2>");
+WiFiManagerParameter custom_Sound_Header_Text("</div><div class='settings-group'><h2>Sound Settings</h2>");
 WiFiManagerParameter custom_Sound_Text("<p>Enable or disable sound effects for spell detection and system events.</p>");
-WiFiManagerParameter custom_Tuning_Header_Text("<h2>Tuning Parameters for Spell Detection</h2>");
+WiFiManagerParameter custom_Tuning_Header_Text("</div><div class='settings-group'><h2>Tuning Parameters for Spell Detection</h2>");
 WiFiManagerParameter custom_Start_Movement_text("<p>Minimum pixels to consider motion to start tracking</p>");
 WiFiManagerParameter custom_stillness_text("<p>Maximum Pixels to consider the wand stationary and initiate the spell tracking</p>");
 WiFiManagerParameter custom_Start_Stillness_Time_text("<p>How long the wand needs to be still to initiate the device</p>");
 WiFiManagerParameter custom_End_STillness_Time_text("<p>How long the wand needs to remain still to end tracking</p>");
 WiFiManagerParameter custom_Max_Gesture_Time_text("<p>Maximum time to track a spell before timing out</p>");
 WiFiManagerParameter custom_IR_Loss_Timeout_text("<p>Max time tracking can be lost before tracking is ended</p>");
-WiFiManagerParameter custom_User_Spell_Names_Header_Text("<h2>Custom Spell Names</h2>");
+WiFiManagerParameter custom_User_Spell_Names_Header_Text("</div><div class='settings-group'><h2>Custom Spell Names</h2>");
 WiFiManagerParameter custom_User_Spell_Names_Text("<p>Rename custom spells recorded via the device.</p>");
+WiFiManagerParameter custom_Tuning_Close_Div("</div>");  // Closes the last settings group
 
 
 
@@ -229,8 +305,59 @@ void generateDropdowns(){
 }
 
 
+// CSS styles for grouped settings - inserted once at top of page
+const char* settingsGroupCSS = R"rawliteral(
+<style>
+.settings-group {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 15px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.settings-group h2 {
+    margin-top: 0;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #007bff;
+    color: #333;
+    font-size: 1.2em;
+}
+.settings-group p {
+    color: #666;
+    font-size: 0.9em;
+    margin-bottom: 10px;
+}
+.invert .settings-group {
+    background: #2a2a2a;
+    border-color: #444;
+}
+.invert .settings-group h2 {
+    color: #fff;
+    border-bottom-color: #4dabf7;
+}
+.invert .settings-group p {
+    color: #aaa;
+}
+</style>
+)rawliteral";
+
+// Buffer for header with version info (increased size for CSS)
+char headerBufferLarge[2500] = "";
+
 // Load Settings from Preferences
 void LoadCustomParameters() {
+    // Build header with version info and CSS styles
+    snprintf(headerBufferLarge, sizeof(headerBufferLarge), 
+        "%s<h1>Glyph Reader Settings</h1><p style='color:#666; font-size:12px; margin-top:-10px;'>Version %s</p>",
+        settingsGroupCSS, getVersionStringComplete());
+    
+    // Delete old header if exists, create new one
+    if (custom_Header_Text != nullptr) {
+        delete custom_Header_Text;
+    }
+    custom_Header_Text = new WiFiManagerParameter(headerBufferLarge);
+    
     strcpy(mqttServerBuffer, MQTT_HOST.c_str());
     snprintf(mqttPortBuffer, sizeof(mqttPortBuffer), "%d", MQTT_PORT);
     strcpy(mqttTopicBuffer, MQTT_TOPIC.c_str());
@@ -492,10 +619,9 @@ void saveCustomParameters() {
 
     wm.server->send(200, "text/html", responseHTML);
 
-    // Force portal to rebuild fields after save
-    wm.stopConfigPortal();
-    delay(100); // Give time for cleanup
-    wm.startWebPortal();
+    // No explicit stop/start of the portal here — WiFiManager manages the
+    // portal lifecycle. Restarting the portal while handlers are running
+    // can result in missing request handlers and 'request handler not found' errors.
 }
 
 /**
@@ -513,30 +639,45 @@ void processBackgroundSaves() {
     if (pendingSaveToPreferences) {
         LOG_DEBUG("Background save: Writing settings to NVS preferences...");
         
-        // MQTT settings
+        // MQTT settings - yield between writes to keep WiFi responsive
         setPref(PrefKey::MQTT_HOST, MQTT_HOST);
+        yield();
         setPref(PrefKey::MQTT_PORT, MQTT_PORT);
+        yield();
         setPref(PrefKey::MQTT_TOPIC, MQTT_TOPIC);
+        yield();
         
         // Location settings
         setPref(PrefKey::LATITUDE, LATITUDE);
+        yield();
         setPref(PrefKey::LONGITUDE, LONGITUDE);
+        yield();
         setPref(PrefKey::TIMEZONE_OFFSET, TIMEZONE_OFFSET);
+        yield();
         
         // Sound settings
         setPref(PrefKey::SOUND_ENABLED, SOUND_ENABLED);
+        yield();
         
         // Nightlight spell settings
         setPref(PrefKey::NIGHTLIGHT_ON_SPELL, NIGHTLIGHT_ON_SPELL);
+        yield();
         setPref(PrefKey::NIGHTLIGHT_OFF_SPELL, NIGHTLIGHT_OFF_SPELL);
+        yield();
         setPref(PrefKey::NIGHTLIGHT_RAISE_SPELL, NIGHTLIGHT_RAISE_SPELL);
+        yield();
         setPref(PrefKey::NIGHTLIGHT_LOWER_SPELL, NIGHTLIGHT_LOWER_SPELL);
+        yield();
         
         // Tuning parameters
         setPref(PrefKey::MOVEMENT_THRESHOLD, MOVEMENT_THRESHOLD);
+        yield();
         setPref(PrefKey::STILLNESS_THRESHOLD, STILLNESS_THRESHOLD);
+        yield();
         setPref(PrefKey::READY_STILLNESS_TIME, READY_STILLNESS_TIME);
+        yield();
         setPref(PrefKey::GESTURE_TIMEOUT, GESTURE_TIMEOUT);
+        yield();
         setPref(PrefKey::IR_LOSS_TIMEOUT, IR_LOSS_TIMEOUT);
         
         pendingSaveToPreferences = false;
@@ -571,15 +712,17 @@ void processBackgroundSaves() {
     }
 }
 
-bool initWM() {
+bool initWM(int timeout) {
     LOG_DEBUG("Initializing WiFiManager...");
-    WiFi.mode(WIFI_STA); // Set WiFi to station mode
+    
+    // Find the least congested WiFi channel before starting AP
+    int bestChannel = findBestWiFiChannel();
 
     // Load stored parameters into buffers (also regenerates dropdowns)
     LoadCustomParameters();
-
+    wm.setWiFiAPChannel(bestChannel); // Use auto-detected best channel
     wm.setConfigPortalBlocking(false); // Non-blocking - device continues even if WiFi fails
-    wm.setConfigPortalTimeout(20); // Config portal timeout: 60 seconds
+    //wm.setConfigPortalTimeout(timeout); // Config portal timeout: 60 seconds
     wm.setCaptivePortalEnable(true); // Enable Captive Portal
 
     // Set WiFiManager Title
@@ -587,11 +730,11 @@ bool initWM() {
     wm.setClass("invert");
 
     // add custom fields
-    wm.addParameter(&custom_Header_Text);
+    wm.addParameter(custom_Header_Text);  // Pointer - includes version info
     wm.addParameter(&custom_MQTT_Text);
     wm.addParameter(&custom_mqtt_server);
     wm.addParameter(&custom_mqtt_port);
-    wm.addParameter(&custom_Topic_Text);
+    //wm.addParameter(&custom_Topic_Text);
     wm.addParameter(&custom_mqtt_topic);
     wm.addParameter(&custom_Nightlight_Header_Text);
     wm.addParameter(&custom_Nightlight_Text);
@@ -682,6 +825,7 @@ bool initWM() {
 
     wm.addParameter(&custom_IR_Loss_Timeout_text);
     wm.addParameter(&custom_IR_Loss_timeout_adjust);
+    wm.addParameter(&custom_Tuning_Close_Div);  // Close the last settings group
 
     // (custom spell fields will be created/added earlier in the function)
 
@@ -697,13 +841,43 @@ bool initWM() {
     // Try to connect to saved WiFi or start config portal
     if (!wm.autoConnect("GlyphReader-Setup")) {
         LOG_ALWAYS("Failed to connect to WiFi - continuing without network");
+        
+        // Log detailed AP status for debugging
+        LOG_ALWAYS("AP Status - SSID: %s, IP: %s, Channel: %d", 
+                   WiFi.softAPSSID().c_str(),
+                   WiFi.softAPIP().toString().c_str(),
+                   WiFi.channel());
+        LOG_ALWAYS("AP MAC: %s, Stations: %d", 
+                   WiFi.softAPmacAddress().c_str(),
+                   WiFi.softAPgetStationNum());
+        
+        // Don't call WiFi.mode(WIFI_AP) here - it can disrupt the already-running portal!
+        // WiFiManager's autoConnect already set up the AP mode.
+        
+        // Explicitly start/restart the web portal to ensure HTTP server is running
+        // This is critical for non-blocking mode where autoConnect returns immediately
+        wm.startWebPortal();
+        LOG_ALWAYS("Web portal explicitly started on 192.168.4.1");
+        
         // Device continues operating without WiFi
         return false;  // Indicates no WiFi, but device still functional
     } else {
         LOG_DEBUG("Connected to WiFi!");
+        LOG_DEBUG("Station IP: %s", WiFi.localIP().toString().c_str());
         wm.startWebPortal();  // Keep web portal available for configuration changes
         return true;  // WiFi connected successfully
     }
 
 }
 
+// This function launches a blocking WiFiManager portal at runtime
+// and returns when the user exits or times out.
+void launchBlockingWiFiPortal() {
+    // Show message on screen
+    displayMessage("WiFi Setup...", 0x07E0);
+    delay(500);
+    initWM(120);
+    displayMessage("Portal Closed", 0xFFE0);
+    delay(1000);
+    clearDisplay();
+}

@@ -47,6 +47,14 @@ bool initCamera();
 void readCameraData();
 
 /**
+ * Check if camera is actively tracking (IR detected)
+ * Returns true when in READY or RECORDING state, meaning IR is detected
+ * and the system needs fast polling for responsive tracking.
+ * return true if actively tracking, false if waiting for IR
+ */
+bool isTrackingActive();
+
+/**
  * Get current IR position for spell recording
  * Helper function that reads camera data and returns the current IR position.
  * Used by custom spell recording state machine.

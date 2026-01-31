@@ -137,6 +137,26 @@ void updateSetupDisplay(int line, const String &function, const String &status);
  */
 bool displayImageFromSD(const char* filename, int16_t x = 0, int16_t y = 0);
 
+/**
+ * Set spell image colors
+ * primaryColorRGB565: Main color to substitute for primary placeholder in BMP (RGB565)
+ * accentColorRGB565: Accent/text color to substitute for secondary placeholder in BMP (RGB565)
+ */
+void setSpellImageColors(uint16_t primaryColorRGB565, uint16_t accentColorRGB565);
+
+/**
+ * Get current spell image colors (RGB565)
+ */
+uint16_t getSpellPrimaryColor();
+uint16_t getSpellAccentColor();
+
+// Color picker UI and helpers
+void displayColorPicker(int selectedIndex);
+uint16_t getPredefinedColor(int index);
+int getPredefinedColorCount();
+void setSpellPrimaryColorByIndex(int index);
+// Return true if Random color mode is active (picker should show rainbow slot)
+bool isRandomColorMode();
 //=====================================
 // Pattern Visualization (Debug)
 //=====================================
@@ -197,10 +217,8 @@ void displayMessage(const char* message, uint16_t color);
  */
 void showReadyBackground();
 
-/**
- * Restore idle background
- * Returns the display to default idle appearance (black with border circle).
- */
-void restoreIdleBackground();
+
+
+extern int SETTINGS_MENU_COUNT;
 
 #endif // SCREEN_FUNCTIONS_H

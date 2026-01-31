@@ -42,6 +42,9 @@ WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 char mqttClientId[32];
 uint32_t lastMqttReconnect = 0;
+uint32_t mqttBackoffInterval = 5000;       // Start at 5 seconds, max 1 hour
+const uint32_t MQTT_BACKOFF_MAX = 3600000; // 1 hour maximum backoff
+bool mqttWasConnected = false;             // Track if we've ever connected this session
 
 /**
  * Maintain MQTT broker connection with auto-reconnect
@@ -60,16 +63,33 @@ void reconnectMQTT() {
     return;  // MQTT disabled - skip
   }
   
-  if (!mqttClient.connected() && WiFi.status() == WL_CONNECTED) {
+  // If connected, reset backoff and track connection state
+  if (mqttClient.connected()) {
+    if (!mqttWasConnected) {
+      mqttWasConnected = true;
+      mqttBackoffInterval = 5000;  // Reset backoff on successful connection
+      LOG_DEBUG("MQTT connected - backoff reset to 5 seconds");
+    }
+    return;
+  }
+  
+  // Not connected - check if we should attempt reconnection
+  if (WiFi.status() == WL_CONNECTED) {
     uint32_t now = millis();
-    if (now - lastMqttReconnect > 5000) {  // Try reconnect every 5 seconds
+    if (now - lastMqttReconnect >= mqttBackoffInterval) {
       lastMqttReconnect = now;
-      Serial.print("Attempting MQTT connection...");
+      LOG_DEBUG("Attempting MQTT connection (backoff: %lu sec)...", mqttBackoffInterval / 1000);
+      
       if (mqttClient.connect(mqttClientId)) {
-        Serial.println("connected");
+        LOG_DEBUG("MQTT connected");
+        mqttWasConnected = true;
+        mqttBackoffInterval = 5000;  // Reset backoff on success
       } else {
-        Serial.print("failed, rc=");
-        Serial.println(mqttClient.state());  // Print error code
+        LOG_DEBUG("MQTT connection failed, rc=%d", mqttClient.state());
+        
+        // Exponential backoff: double the interval, cap at 1 hour
+        mqttBackoffInterval = min(mqttBackoffInterval * 2, MQTT_BACKOFF_MAX);
+        LOG_DEBUG("Next MQTT attempt in %lu seconds", mqttBackoffInterval / 1000);
       }
     }
   }
@@ -156,8 +176,19 @@ ApiData fetchIpApiData() {
         return result;
     }
 
-    // convert offset to seconds
-    int offset = (*doc)["utc_offset"].as<int>() *36;
+    // Parse UTC offset from ipapi.co format: "+HHMM" or "-HHMM" (e.g., "+0530" = UTC+5:30)
+    // Convert to total seconds for timezone calculations
+    String offsetStr = (*doc)["utc_offset"].as<String>();
+    int offset = 0;
+    if (offsetStr.length() >= 5) {
+        int sign = (offsetStr.charAt(0) == '-') ? -1 : 1;
+        int hours = offsetStr.substring(1, 3).toInt();    // Extract HH
+        int minutes = offsetStr.substring(3, 5).toInt();  // Extract MM
+        offset = sign * (hours * 3600 + minutes * 60);    // Convert to seconds
+        LOG_DEBUG("Parsed UTC offset: %s -> %d seconds", offsetStr.c_str(), offset);
+    } else {
+        LOG_DEBUG("Warning: Could not parse UTC offset: %s", offsetStr.c_str());
+    }
 
     result.strings[0] = (*doc)["latitude"].as<String>();
     result.strings[1] = (*doc)["longitude"].as<String>();

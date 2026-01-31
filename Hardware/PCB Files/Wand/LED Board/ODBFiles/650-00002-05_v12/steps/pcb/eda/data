@@ -1,0 +1,90 @@
+#
+HDR Autodesk Fusion Electronics
+UNITS=MM
+LYR solder_+_paste_+_top silkscreen_+_top solder_+_mask_+_top top route2 route63 bottom solder_+_mask_+_bottom silkscreen_+_bottom solder_+_paste_+_bottom through_+_hole
+#
+#
+#Net attribute names
+#
+#@0 .net_type
+#
+#Net attribute text strings
+#
+#&0 default
+#
+# NET 0
+NET GND;0=0;ID=116
+SNT TOP T 0 0
+FID C 3 2
+SNT TOP T 0 1
+FID C 3 3
+SNT PLN S C 0.0
+FID C 3 1
+SNT PLN S C 0.0
+FID C 3 0
+#
+# NET 1
+NET IR;0=0;ID=117
+SNT TOP T 0 2
+FID C 6 2
+SNT PLN S C 0.0
+FID C 6 1
+SNT TRC
+FID C 6 4
+SNT TRC
+FID C 6 5
+#
+# NET 2
+NET EFFECT;0=0;ID=118
+SNT TOP T 0 3
+FID C 6 3
+SNT PLN S C 0.0
+FID C 6 0
+SNT TRC
+FID C 6 6
+SNT TRC
+FID C 6 7
+SNT TRC
+FID C 6 8
+SNT TRC
+FID C 6 9
+#
+# PKG 0
+PKG 2314820-4-BOARDEDGE 0 0.254 -1.4445 3.048 1.4445
+RC 0.254 -1.4445 2.794 2.889
+PIN P$1 S 1.651 -1 0 E S ID=121
+CT
+OB 3.048 -1.4445 I
+OS 0.254 -1.4445
+OS 0.254 -0.5555
+OS 3.048 -0.5555
+OS 3.048 -1.4445
+OE
+CE
+PIN P$2 S 1.651 1 0 E S ID=122
+CT
+OB 3.048 0.5555 I
+OS 0.254 0.5555
+OS 0.254 1.4445
+OS 3.048 1.4445
+OS 3.048 0.5555
+OE
+CE
+PIN P$3 S 1.651 1 0 E S ID=123
+CT
+OB 3.048 0.5555 I
+OS 0.254 0.5555
+OS 0.254 1.4445
+OS 3.048 1.4445
+OS 3.048 0.5555
+OE
+CE
+PIN P$4 S 1.651 -1 0 E S ID=124
+CT
+OB 3.048 -1.4445 I
+OS 0.254 -1.4445
+OS 0.254 -0.5555
+OS 3.048 -0.5555
+OS 3.048 -1.4445
+OE
+CE

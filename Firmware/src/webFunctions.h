@@ -73,7 +73,7 @@ extern bool pendingSaveCustomSpellsToSD;
  * note: Must be called AFTER initSpellPatterns() (spell dropdowns require patterns)
  * note: WiFiManager will automatically manage AP mode when WiFi is disconnected
  */
-bool initWM();
+bool initWM(int timeout);
 
 /**
  * Process background saves to NVS preferences

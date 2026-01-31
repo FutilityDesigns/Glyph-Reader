@@ -393,7 +393,7 @@ bool renameCustomSpellsBatch(const std::vector<SpellRenamePair>& renames) {
   File file = SD.open(configFile, FILE_READ);
   if (!file) return false;
 
-  DynamicJsonDocument doc(16384);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, file);
   file.close();
   if (error) return false;

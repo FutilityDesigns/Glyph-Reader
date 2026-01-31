@@ -1,0 +1,12 @@
+UNITS=MM
+H optimize n staggered n
+$0 GND
+$1 IR
+$2 EFFECT
+#
+#Netlist points
+#
+0 0.002 129.8956 1.2606 T e e
+0 0.002 129.8956 3.2606 T e e
+1 0.002 129.8956 1.2606 D e e
+2 0.002 129.8956 3.2606 D e e

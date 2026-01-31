@@ -36,12 +36,328 @@
 #include <Fonts/FreeSansBold24pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 
-// Create display instance
+//=====================================
+// Global Display Object
+//=====================================
+
+/// GC9A01A display controller instance
+/// Configured with SPI pins: CS=10, DC=9, RST=8
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 
-// Track last IR point position for drawing connected trail lines
-static int lastIRX = -1;  // -1 indicates no previous point
+//=====================================
+// IR Trail Tracking State
+//=====================================
+
+/// Last drawn IR point X coordinate (display space: 0-239)
+/// -1 indicates no previous point (trail start/reset)
+static int lastIRX = -1;
+
+/// Last drawn IR point Y coordinate (display space: 0-239)
+/// -1 indicates no previous point (trail start/reset)
 static int lastIRY = -1;
+
+//=====================================
+// Spell Image Color System
+//=====================================
+
+/**
+ * User-customizable primary color for spell images (RGB565 format)
+ * Applied to grayscale regions in BMP files via lookup table.
+ * Default: White (0xFFFF) until user selects a color in settings.
+ */
+static uint16_t spellPrimaryColorRGB565 = 0xFFFF;
+
+/**
+ * User-customizable accent color for spell images (RGB565 format)
+ * Applied to lime green (0,255,0) placeholder pixels in BMP files.
+ * Default: Yellow (0xFFE0)
+ */
+static uint16_t spellAccentColorRGB565 = 0xFFE0;
+
+/**
+ * Grayscale-to-tinted-color lookup table (256 entries)
+ * Maps grayscale intensity (0-255) to RGB565 color tinted toward primary color.
+ * Pre-computed when setSpellImageColors() is called for fast BMP rendering.
+ * Index 0 = black, Index 255 = full primary color.
+ */
+static uint16_t primaryLUT[256];
+
+/// Flag indicating if primaryLUT has been initialized
+static bool primaryLUTInitialized = false;
+
+//=====================================
+// Predefined Color Palette
+//=====================================
+
+/**
+ * Predefined spell color palette in RGB888 format
+ * These colors are available in the settings color picker.
+ * White is first so device defaults to white until user picks a color.
+ * Colors are converted to RGB565 on first use via ensurePredefinedColorsInit().
+ */
+static const uint8_t predefinedRGB888[][3] = {
+  {255, 255, 255}, // White (default)
+  {255, 0, 0},     // Red
+  {255, 127, 0},   // Orange
+  {255, 255, 0},   // Yellow
+  {0, 255, 0},     // Green
+  {0, 255, 255},   // Cyan
+  {0, 0, 255},     // Blue
+  {149, 0, 255},   // Indigo
+  {255, 0, 228}    // Magenta
+};
+
+/// Number of concrete colors in predefinedRGB888 array
+static const int PREDEFINED_COLOR_COUNT = sizeof(predefinedRGB888) / sizeof(predefinedRGB888[0]);
+
+/// Predefined colors converted to RGB565 format (populated lazily)
+static uint16_t predefinedRGB565[PREDEFINED_COLOR_COUNT];
+
+/// Flag indicating if predefinedRGB565 array has been initialized
+static bool predefinedColorsInit = false;
+
+/**
+ * Virtual index representing "Random" color mode in the picker
+ * When selected, a random color from the palette is chosen each time
+ * a spell is displayed. Not stored in predefinedRGB565 array.
+ */
+static const int RANDOM_COLOR_INDEX = PREDEFINED_COLOR_COUNT;
+
+/// Flag indicating if random color mode is active
+/// When true, spell display picks a random predefined color each time
+static bool randomColorMode = false;
+
+//=====================================
+// Forward Declarations
+//=====================================
+
+/// Pack RGB888 components into RGB565 format
+static inline uint16_t packRGB565(uint8_t r, uint8_t g, uint8_t b);
+
+/// Draw a rainbow gradient swatch (used by color picker for "Random" option)
+static void drawRainbowSwatch(int sx, int sy, int sw, int sh);
+
+//=====================================
+// Color Palette Initialization
+//=====================================
+
+/**
+ * Initialize predefined color palette (lazy initialization)
+ * Converts RGB888 colors to RGB565 format on first call.
+ * Safe to call multiple times - only initializes once.
+ */
+static void ensurePredefinedColorsInit() {
+  if (predefinedColorsInit) return;
+  for (int i = 0; i < PREDEFINED_COLOR_COUNT; ++i) {
+    predefinedRGB565[i] = packRGB565(predefinedRGB888[i][0], predefinedRGB888[i][1], predefinedRGB888[i][2]);
+  }
+  predefinedColorsInit = true;
+}
+
+/**
+ * Set spell primary color by palette index
+ * Called when user selects a color in the settings menu.
+ * 
+ * param index: Index into predefined color palette (0 to PREDEFINED_COLOR_COUNT-1)
+ *              If index >= PREDEFINED_COLOR_COUNT, enables random color mode
+ *              If index < 0, function returns without changes
+ * 
+ * When random mode is enabled, a new random color is picked each time
+ * a spell is displayed (in displaySpellName function).
+ */
+void setSpellPrimaryColorByIndex(int index) {
+  ensurePredefinedColorsInit();
+  if (index < 0) return;
+  if (index >= PREDEFINED_COLOR_COUNT) {
+    // Random mode selected
+    randomColorMode = true;
+    return;
+  }
+  randomColorMode = false;
+  setSpellImageColors(predefinedRGB565[index], spellAccentColorRGB565);
+}
+
+/**
+ * Get RGB565 color value from predefined palette by index
+ * 
+ * param index: Palette index (0 to PREDEFINED_COLOR_COUNT-1)
+ * return RGB565 color value, or:
+ *         - 0x0000 (black) if index < 0
+ *         - 0xFFFF (white) if index >= PREDEFINED_COLOR_COUNT (e.g., RANDOM_COLOR_INDEX)
+ */
+uint16_t getPredefinedColor(int index) {
+  ensurePredefinedColorsInit();
+  if (index < 0) return 0x0000;
+  if (index < PREDEFINED_COLOR_COUNT) return predefinedRGB565[index];
+  // RANDOM_COLOR_INDEX or out-of-range -> return white as placeholder
+  return 0xFFFF;
+}
+
+/**
+ * Get total number of color options in the picker (including Random)
+ * 
+ * return PREDEFINED_COLOR_COUNT + 1 (concrete colors plus Random option)
+ */
+int getPredefinedColorCount() {
+  // Expose one extra slot for the "Random" option
+  return PREDEFINED_COLOR_COUNT + 1;
+}
+
+/**
+ * Check if random color mode is currently active
+ * Used by other modules to determine if the Random slot should be highlighted
+ * in the color picker UI.
+ * 
+ * return true if random mode is active, false if a specific color is selected
+ */
+bool isRandomColorMode() {
+  return randomColorMode;
+}
+
+//=====================================
+// Color Picker UI
+//=====================================
+
+/**
+ * Display color picker screen for spell color selection
+ * Shows a grid of color swatches with the selected one highlighted.
+ * The last swatch is a rainbow gradient representing "Random" mode.
+ * 
+ * param selectedIndex: Currently selected color index (0 to getPredefinedColorCount()-1)
+ * 
+ * UI Layout:
+ * - Title "Spell Color" at top (centered)
+ * - Two rows of color swatches (36x36 pixels each, 8px gap)
+ * - Selected swatch has double white border
+ * - Instructions at bottom: "BTN1: Select  BTN2: Next"
+ */
+void displayColorPicker(int selectedIndex) {
+  ensurePredefinedColorsInit();
+  // Clear area and draw title
+  tft.fillScreen(0x0000);
+  tft.setFont(&FreeSansBold12pt7b);
+  tft.setTextColor(0xFFFF);
+  int16_t x1, y1; uint16_t w, h;
+  const char* title = "Spell Color";
+  tft.getTextBounds(title, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor((240 - w) / 2, 20 + h);
+  tft.println(title);
+  tft.setFont();
+
+  // Draw swatches in up to two centered rows so all swatches fit on screen
+  const int swatchSize = 36;
+  const int gap = 8;
+  // Split into two rows: compute columns per row (ceil(count/2))
+  int totalCount = getPredefinedColorCount();
+  int cols = (totalCount + 1) / 2;
+  int rows = (totalCount + cols - 1) / cols; // should be 1 or 2
+  int totalWidth = cols * swatchSize + (cols - 1) * gap;
+  int startX = (240 - totalWidth) / 2;
+  int rowY1 = 70;
+  int rowY2 = rowY1 + swatchSize + 12;
+  for (int i = 0; i < totalCount; ++i) {
+    int row = i / cols;
+    int col = i % cols;
+    int sx = startX + col * (swatchSize + gap);
+    int sy = (row == 0) ? rowY1 : rowY2;
+    // Draw swatch background (border)
+    tft.drawRect(sx - 2, sy - 2, swatchSize + 4, swatchSize + 4, 0xFFFF);
+    // Fill color or draw Random label
+    if (i == RANDOM_COLOR_INDEX) {
+      drawRainbowSwatch(sx, sy, swatchSize, swatchSize);
+    } else {
+      tft.fillRect(sx, sy, swatchSize, swatchSize, predefinedRGB565[i]);
+    }
+    // Highlight selection
+    if (i == selectedIndex) {
+      tft.drawRect(sx - 4, sy - 4, swatchSize + 8, swatchSize + 8, 0xFFFF);
+    }
+  }
+
+  // Instructions
+  tft.setTextSize(1);
+  tft.setTextColor(0x7BEF);
+  const char* inst1 = "BTN1: Select  BTN2: Next";
+  tft.getTextBounds(inst1, 0, 0, &x1, &y1, &w, &h);
+  tft.setCursor((240 - w) / 2, rowY2 + swatchSize + 16);
+  tft.print(inst1);
+
+  screenOnTime = millis();
+}
+
+//=====================================
+// Color Conversion Helpers
+//=====================================
+
+/**
+ * Pack 8-bit RGB components into RGB565 format
+ * RGB565 packs 16 bits of color: 5 bits red, 6 bits green, 5 bits blue.
+ * Human eyes are more sensitive to green, hence the extra bit.
+ * 
+ * param r: Red component (0-255)
+ * param g: Green component (0-255)
+ * param b: Blue component (0-255)
+ * return Packed RGB565 value (16-bit)
+ * 
+ * Bit layout: RRRRRGGG GGGBBBBB
+ */
+static inline uint16_t packRGB565(uint8_t r, uint8_t g, uint8_t b) {
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+/**
+ * Draw a rainbow gradient swatch for the "Random" color option
+ * Divides the swatch area into vertical stripes, one for each predefined color.
+ * 
+ * param sx: Swatch X position (top-left corner)
+ * param sy: Swatch Y position (top-left corner)
+ * param sw: Swatch width in pixels
+ * param sh: Swatch height in pixels
+ */
+static void drawRainbowSwatch(int sx, int sy, int sw, int sh) {
+  ensurePredefinedColorsInit();
+  int n = PREDEFINED_COLOR_COUNT;
+  if (n <= 0) return;
+  int stripe = sw / n;
+  for (int i = 0; i < n; ++i) {
+    int x = sx + i * stripe;
+    int w = (i == n - 1) ? (sw - stripe * (n - 1)) : stripe;
+    tft.fillRect(x, sy, w, sh, predefinedRGB565[i]);
+  }
+}
+
+//=====================================
+// BMP Placeholder Color Definitions
+//=====================================
+
+/**
+ * Placeholder colors for BMP image recoloring system
+ * 
+ * Artists creating spell images should use these specific RGB values
+ * to mark regions that will be dynamically recolored at runtime:
+ * 
+ * PRIMARY PLACEHOLDER: Magenta (255, 0, 255)
+ *   - Used for main spell effect areas
+ *   - Replaced with user's selected spell color
+ *   - Grayscale variants (R==G==B) are also tinted toward primary color
+ * 
+ * ACCENT PLACEHOLDER: Lime Green (0, 255, 0)
+ *   - Used for secondary/accent details
+ *   - Replaced with accent color (currently yellow)
+ * 
+ * Pure black (0, 0, 0) is preserved as-is for backgrounds.
+ */
+static const uint8_t PLACEHOLDER_PRIMARY_R = 255; // Magenta (R=255,G=0,B=255)
+static const uint8_t PLACEHOLDER_PRIMARY_G = 0;
+static const uint8_t PLACEHOLDER_PRIMARY_B = 255;
+
+static const uint8_t PLACEHOLDER_ACCENT_R = 0;   // Lime green (R=0,G=255,B=0)
+static const uint8_t PLACEHOLDER_ACCENT_G = 255;
+static const uint8_t PLACEHOLDER_ACCENT_B = 0;
+
+//=====================================
+// Display Initialization
+//=====================================
 
 /**
  * Initialize GC9A01A round display and backlight
@@ -202,12 +518,6 @@ void showReadyBackground() {
   screenOnTime = millis();
 }
 
-/**
- * Restore idle background (black with border circle)
- */
-void restoreIdleBackground() {
-  clearDisplay();
-}
 
 /**
  * Display recognized spell name (image or text)
@@ -242,6 +552,12 @@ void displaySpellName(const char* spellName) {
     Serial.printf("Displaying image for spell: %s\n", filename.c_str());
     
     // Try to display the image centered on screen (0, 0 for 240x240 image)
+    // If user preference is Random, pick a random predefined color for this display
+    if (randomColorMode) {
+      ensurePredefinedColorsInit();
+      int r = (int)(esp_random() % PREDEFINED_COLOR_COUNT);
+      setSpellImageColors(predefinedRGB565[r], spellAccentColorRGB565);
+    }
     if (displayImageFromSD(filename.c_str(), 0, 0)) {
       // Image displayed successfully - set timeouts and return
       screenSpellOnTime = millis();
@@ -363,6 +679,39 @@ void backlightOn() {
 }
 
 /**
+ * Set the user-preferred colors for spell images.
+ * Artists should draw recolorable regions using the placeholder colors
+ * (magenta for primary, lime for accent). Those pixels will be replaced
+ * with these RGB565 values at display time.
+ */
+void setSpellImageColors(uint16_t primaryColorRGB565, uint16_t accentColorRGB565) {
+  spellPrimaryColorRGB565 = primaryColorRGB565;
+  spellAccentColorRGB565 = accentColorRGB565;
+
+  // Reconstruct approximate 8-bit RGB components from RGB565 primary color
+  uint8_t p_r = (uint8_t)(((spellPrimaryColorRGB565 >> 11) & 0x1F) << 3);
+  uint8_t p_g = (uint8_t)(((spellPrimaryColorRGB565 >> 5) & 0x3F) << 2);
+  uint8_t p_b = (uint8_t)((spellPrimaryColorRGB565 & 0x1F) << 3);
+
+  // Build LUT: map grayscale intensity to tinted color scaled by intensity
+  for (int i = 0; i < 256; i++) {
+    uint8_t r = (uint8_t)((p_r * i + 127) / 255);
+    uint8_t g = (uint8_t)((p_g * i + 127) / 255);
+    uint8_t b = (uint8_t)((p_b * i + 127) / 255);
+    primaryLUT[i] = packRGB565(r, g, b);
+  }
+  primaryLUTInitialized = true;
+}
+
+uint16_t getSpellPrimaryColor() {
+  return spellPrimaryColorRGB565;
+}
+
+uint16_t getSpellAccentColor() {
+  return spellAccentColorRGB565;
+}
+
+/**
  * Load and display BMP image from SD card
  * filename: Path to BMP file on SD card (e.g., "/lumos.bmp")
  * x: X coordinate for top-left corner of image on display
@@ -422,6 +771,11 @@ bool displayImageFromSD(const char* filename, int16_t x, int16_t y) {
     file.close();
     return false;
   }
+
+  // Ensure LUT is built (use current primary color default if user hasn't set one)
+  if (!primaryLUTInitialized) {
+    setSpellImageColors(spellPrimaryColorRGB565, spellAccentColorRGB565);
+  }
   
   // Get the data offset (where pixel data starts)
   uint32_t dataOffset = file.position();
@@ -477,12 +831,34 @@ bool displayImageFromSD(const char* filename, int16_t x, int16_t y) {
     file.read(rowBuffer, rowSize);  // Read one row (with padding)
     
     // Convert each pixel from BGR888 to RGB565 and store in row buffer
+    // If the artist used one of the placeholder colors in the BMP
+    // (magenta for primary, lime for accent), substitute the
+    // user-selected RGB565 color to allow runtime recoloring.
     for (int col = 0; col < width; col++) {
       uint8_t b = rowBuffer[col * 3];      // Blue channel
       uint8_t g = rowBuffer[col * 3 + 1];  // Green channel
       uint8_t r = rowBuffer[col * 3 + 2];  // Red channel
-      // Pack into RGB565: RRRRR GGGGGG BBBBB
-      imageRows[row][col] = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+
+      // Preserve pure black background
+      if (r == 0 && g == 0 && b == 0) {
+        imageRows[row][col] = 0x0000;
+        continue;
+      }
+
+      // Accent placeholder (lime: R=0,G=255,B=0) -> flat accent color
+      if (r == PLACEHOLDER_ACCENT_R && g == PLACEHOLDER_ACCENT_G && b == PLACEHOLDER_ACCENT_B) {
+        imageRows[row][col] = spellAccentColorRGB565;
+        continue;
+      }
+
+      // If pixel is pure grayscale (R==G==B), tint using LUT (very fast)
+      if (r == g && g == b) {
+        imageRows[row][col] = primaryLUT[r];
+        continue;
+      }
+
+      // For any other colored pixel, fall back to direct packing
+      imageRows[row][col] = packRGB565(r, g, b);
     }
   }
   
@@ -691,6 +1067,9 @@ void visualizeMatchComparison(const char* name, const std::vector<Point>& spellP
 // Settings Menu Display
 //=====================================
 
+// Number of settings in the menu (set in displaySettingsMenu)
+int SETTINGS_MENU_COUNT = 6;
+
 /**
  * Display settings menu on screen
  * Shows the current setting name and value with visual indicators.
@@ -709,24 +1088,21 @@ void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
     tft.fillScreen(0x0000);  // Black background
     
     // Define category and setting names
-    const char* categoryNames[] = {"Night Light", "Spells"};
+    // Categories: Night Light (0-3), Spells (4-5)
     const char* settingNames[] = {
-        "On Spell",      // 0 - Night Light category
-        "Off Spell",     // 1
-        "Raise Spell",   // 2
-        "Lower Spell",   // 3
-        "Add Spell"      // 4 - Spells category
+      "On Spell",
+      "Off Spell",
+      "Raise Spell",
+      "Lower Spell",
+      "Add Spell",
+      "Spell Color"
     };
+    SETTINGS_MENU_COUNT = sizeof(settingNames) / sizeof(settingNames[0]);
     
     // Determine which category this setting belongs to
-    const char* categoryName;
-    if (settingIndex <= 3) {
-        categoryName = categoryNames[0];  // Night Light
-    } else {
-        categoryName = categoryNames[1];  // Spells
-    }
+    const char* categoryName = (settingIndex <= 3) ? "Night Light" : "Spells";
     
-    // Get value name
+    // Get value name based on setting type
     String valueName;
     if (settingIndex == 4) {
         valueName = "Press to Start";
@@ -751,19 +1127,19 @@ void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
     
     // Display setting name below category (centered) - FreeSansBold 12pt
     tft.setFont(&FreeSansBold12pt7b);
-    if (settingIndex >= 0 && settingIndex < 5) {
-        tft.getTextBounds(settingNames[settingIndex], 0, 0, &x1, &y1, &w, &h);
-        int settingCenterX = (240 - w) / 2;
-        tft.setCursor(settingCenterX, 45 + h);
-        tft.println(settingNames[settingIndex]);
+    if (settingIndex >= 0 && settingIndex < SETTINGS_MENU_COUNT) {
+      tft.getTextBounds(settingNames[settingIndex], 0, 0, &x1, &y1, &w, &h);
+      int settingCenterX = (240 - w) / 2;
+      tft.setCursor(settingCenterX, 45 + h);
+      tft.println(settingNames[settingIndex]);
     }
     
     tft.setFont();  // Reset to default font
     
     // Display navigation/edit indicator (centered)
     tft.setTextSize(1);
-    if (settingIndex != 4) {  // Not Add Spell
-        if (isEditing) {
+    if (settingIndex != 4) {  // Not Add Spell (which is action-only)
+      if (isEditing) {
         // Editing mode - show brackets around value
         tft.setTextColor(0x07E0);  // Green for edit mode
         String editText = "[ EDITING ]";
@@ -771,25 +1147,61 @@ void displaySettingsMenu(int settingIndex, int valueIndex, bool isEditing) {
         int editCenterX = (240 - editWidth) / 2;
         tft.setCursor(editCenterX, 75);
         tft.print(editText);
-    } else {
+      } else {
         // Browse mode - show navigation hint
         tft.setTextColor(0xFFE0);  // Yellow for browse mode
         String browseText = "< BROWSE >";
         int browseWidth = browseText.length() * 6;  // Size 1: ~6px per char
         int browseCenterX = (240 - browseWidth) / 2;
         tft.setCursor(browseCenterX, 75);
-        tft.print(browseText);        }    }
+        tft.print(browseText);
+      }
+    }
     
     // Display current value in center (FreeSansBold 24pt)
     tft.setFont(&FreeSansBold12pt7b);
     tft.setTextColor(0xFFFF);  // White text
-    
-    // Get text bounds and center horizontally and vertically
-    tft.getTextBounds(valueName.c_str(), 0, 0, &x1, &y1, &w, &h);
-    int valueCenterX = (240 - w) / 2;
-    int valueCenterY = 120 + (h / 2);  // Center vertically with baseline positioning
-    tft.setCursor(valueCenterX, valueCenterY);
-    tft.println(valueName);
+
+    if (settingIndex == 5) {
+      // Show current color swatch centered
+      ensurePredefinedColorsInit();
+      int sw = 60; int sh = 60;
+      int sx = (240 - sw) / 2;
+      int sy = 100;
+      // When not editing, derive the current color index from the active primary color
+      int colorIndexToShow = valueIndex;
+      if (!isEditing) {
+        if (randomColorMode) {
+          colorIndexToShow = RANDOM_COLOR_INDEX;
+        } else {
+          uint16_t cur = getSpellPrimaryColor();
+          // Find matching predefined color index (exclude RANDOM entry)
+          colorIndexToShow = 0;
+          for (int i = 0; i < PREDEFINED_COLOR_COUNT; ++i) {
+            if (getPredefinedColor(i) == cur) { colorIndexToShow = i; break; }
+          }
+        }
+      }
+      tft.drawRect(sx - 2, sy - 2, sw + 4, sh + 4, 0xFFFF);
+      if (colorIndexToShow == RANDOM_COLOR_INDEX) {
+        drawRainbowSwatch(sx, sy, sw, sh);
+      } else {
+        uint16_t color = getPredefinedColor(colorIndexToShow);
+        tft.fillRect(sx, sy, sw, sh, color);
+      }
+
+      // Label under swatch
+      tft.getTextBounds("Current Color", 0, 0, &x1, &y1, &w, &h);
+      tft.setCursor((240 - w) / 2, sy + sh + 20);
+      tft.println("Current Color");
+    } else {
+      // Get text bounds and center horizontally and vertically
+      tft.getTextBounds(valueName.c_str(), 0, 0, &x1, &y1, &w, &h);
+      int valueCenterX = (240 - w) / 2;
+      int valueCenterY = 120 + (h / 2);  // Center vertically with baseline positioning
+      tft.setCursor(valueCenterX, valueCenterY);
+      tft.println(valueName);
+    }
     
     tft.setFont();  // Reset font
     

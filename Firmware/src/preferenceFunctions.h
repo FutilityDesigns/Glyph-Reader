@@ -73,6 +73,7 @@ enum class PrefType {
     PREF_X(NIGHTLIGHT_RAISE_SPELL, STRING, "NLraise") \
     PREF_X(NIGHTLIGHT_LOWER_SPELL, STRING, "NLlower") \
     PREF_X(NIGHTLIGHT_BRIGHTNESS, INT,   "NLbright") \
+    PREF_X(SPELL_PRIMARY_COLOR_INDEX, INT, "spellColorIdx") \
     PREF_X(LATITUDE,             STRING, "latitude")    \
     PREF_X(LONGITUDE,            STRING, "longitude")    \
     PREF_X(TIMEZONE_OFFSET,      INT,    "tzOffset")    \
@@ -177,6 +178,7 @@ extern String NIGHTLIGHT_OFF_SPELL;   ///< Spell name to deactivate nightlight (
 extern String NIGHTLIGHT_RAISE_SPELL; ///< Spell name to increase brightness (e.g., "Raise")
 extern String NIGHTLIGHT_LOWER_SPELL; ///< Spell name to decrease brightness (e.g., "Lower")
 extern int NIGHTLIGHT_BRIGHTNESS;     ///< Nightlight brightness (0-255, default 150)
+extern int SPELL_PRIMARY_COLOR_INDEX; ///< Index into predefined spell color palette (default 0)
 
 // Location Configuration (for sunrise/sunset calculations)
 extern String LATITUDE;           ///< Device latitude in decimal degrees (e.g., "37.7749")

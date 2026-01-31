@@ -51,6 +51,7 @@ String LATITUDE;
 String LONGITUDE;
 int TIMEZONE_OFFSET;
 bool SOUND_ENABLED;
+int SPELL_PRIMARY_COLOR_INDEX;
 
 // Define preference specifications
 static const PrefSpec PREF_SPECS[] = {
@@ -215,6 +216,16 @@ void setPref(PrefKey key, const String &val) {
  * - NIGHTLIGHT_OFF_SPELL: "" (no spell assigned)
  */
 void loadPreferences() {
+#ifdef PURGE_PREFERENCES
+    // Clear all stored preferences when PURGE_PREFERENCES flag is set
+    // Used for provisioning devices before distribution
+    LOG_ALWAYS("!!! PURGE_PREFERENCES enabled - clearing all stored settings !!!");
+    preferences.begin("settings", false);  // Open read-write
+    preferences.clear();  // Erase all keys in "settings" namespace
+    preferences.end();
+    LOG_ALWAYS("All preferences cleared. Remove PURGE_PREFERENCES flag and rebuild.");
+#endif
+
     // MQTT Configuration
     MQTT_HOST = getPrefString(PrefKey::MQTT_HOST, "");  // Empty by default - user must configure
     MQTT_PORT = getPrefInt(PrefKey::MQTT_PORT, 1883);  // Standard MQTT port
@@ -243,4 +254,7 @@ void loadPreferences() {
     
     // Sound settings (default disabled - user must enable via web portal)
     SOUND_ENABLED = getPrefBool(PrefKey::SOUND_ENABLED, false);
+
+    // Spell color preference (index into predefined palette)
+    SPELL_PRIMARY_COLOR_INDEX = getPrefInt(PrefKey::SPELL_PRIMARY_COLOR_INDEX, 0);
 }

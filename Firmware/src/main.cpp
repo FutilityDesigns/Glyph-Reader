@@ -35,6 +35,9 @@
 // ESP32 core library for mDNS (network service discovery)
 #include <ESPmDNS.h>
 
+// Version information
+#include "version.h"
+
 // Hardware interface modules
 #include "led_control.h"          // NeoPixel LED control and effects
 #include "screenFunctions.h"      // GC9A01A display operations
@@ -55,6 +58,10 @@
 
 // Global definitions and hardware pins
 #include "glyphReader.h"
+
+// FreeRTOS for dual-core operation
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 //=====================================
 // Global State Variables
@@ -82,7 +89,13 @@ const unsigned long nightlightTimeout = 28800000; // Nightlight auto-off after 8
 bool backlightStateOn = false;    // Current backlight on/off state
 bool nightlightActive = false;    // Track if nightlight mode is currently on
 bool cameraInitialized = false;   // Track if camera successfully initialized
-uint32_t lastReadTime = 0;        // Timestamp of last camera read (for 100Hz timing)
+uint32_t lastReadTime = 0;        // Timestamp of last camera read (for adaptive polling)
+
+// Camera/Sensor retry with exponential backoff
+uint32_t lastCameraRetry = 0;               // Timestamp of last camera retry attempt
+uint32_t cameraBackoffInterval = 5000;      // Start at 5 seconds, max 1 hour
+const uint32_t CAMERA_BACKOFF_MAX = 3600000; // 1 hour maximum backoff
+bool cameraErrorDisplayed = false;          // Track if error is shown on screen
 
 // Settings menu state
 bool inSettingsMode = false;      // Are we in settings menu?
@@ -91,6 +104,50 @@ int currentSettingIndex = 0;      // Which setting are we viewing/editing?
 int settingValueIndex = 0;        // Current value option for multi-choice settings
 bool inSpellRecordingMode = false; // Are we in spell recording mode?
 bool isRecordingCustomSpell = false; // Is custom spell recording active (uses normal tracking)?
+
+// WiFi task handle for dual-core operation
+TaskHandle_t wifiTaskHandle = NULL;
+volatile bool wifiTaskRunning = false;
+
+
+//=====================================
+// WiFi Task - Runs on Core 0
+//=====================================
+/**
+ * Dedicated WiFi processing task running on Core 0
+ * 
+ * Handles all WiFi-related operations separately from main application:
+ * - WiFiManager portal processing (wm.process())
+ * - MQTT connection maintenance and message processing
+ * - Background NVS/SD saves triggered by web portal
+ * 
+ * Running WiFi on a dedicated core prevents the main application's
+ * I2C operations, display updates, and LED animations from starving
+ * the WiFi stack of CPU time.
+ * 
+ * Stack size: 8KB (WiFiManager uses significant stack for HTML generation)
+ * Priority: 1 (same as main loop, but on different core)
+ */
+void wifiTask(void* parameter) {
+  LOG_DEBUG("WiFi task started on Core %d", xPortGetCoreID());
+  wifiTaskRunning = true;
+  
+  while (true) {
+    // Process WiFiManager web portal
+    wm.process();
+    
+    // Process background saves (NVS/SD writes from web portal)
+    processBackgroundSaves();
+    
+    // Maintain MQTT connection (handles backoff internally)
+    reconnectMQTT();
+    mqttClient.loop();
+    
+    // Give other tasks and WiFi stack time to run
+    // 10ms delay provides ~100Hz processing rate which is plenty for web portal
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
 
 
 //=====================================
@@ -140,6 +197,8 @@ void setup() {
   
   LOG_DEBUG("\n\n=================================");
   LOG_DEBUG("Glyph Reader Startup");
+  LOG_DEBUG("Version: %s", getVersionStringComplete());
+  LOG_DEBUG("Built: %s", getBuildTimestamp());
   LOG_DEBUG("=================================\n");
   
   //-----------------------------------
@@ -190,6 +249,10 @@ void setup() {
   LOG_DEBUG("  END_STILLNESS_TIME: %d", END_STILLNESS_TIME);
   LOG_DEBUG("  GESTURE_TIMEOUT: %d", GESTURE_TIMEOUT);
   LOG_DEBUG("  IR_LOSS_TIMEOUT: %d", IR_LOSS_TIMEOUT);
+  
+  // Apply persisted spell color preference (index into predefined palette)
+  setSpellPrimaryColorByIndex(SPELL_PRIMARY_COLOR_INDEX);
+  LOG_DEBUG("Applied persisted spell color index: %d", SPELL_PRIMARY_COLOR_INDEX);
 
   // Update display for preferences status
   updateSetupDisplay(step, "Preferences", "pass");
@@ -249,7 +312,7 @@ void setup() {
   
   // Attempt WiFi connection or start AP mode
   // Returns true if connected to WiFi, false if in AP mode
-  bool wifiConnected = initWM();
+  bool wifiConnected = initWM(120);
   
   if (wifiConnected) {
     updateSetupDisplay(step, "WiFi Manager", "pass");
@@ -426,7 +489,25 @@ void setup() {
   clearDisplay();
   
   // Set screen on time for timeout tracking
-  screenOnTime = millis();  
+  screenOnTime = millis();
+  
+  //-----------------------------------
+  // Step 15: Start WiFi Task on Core 0
+  //-----------------------------------
+  // Create dedicated WiFi task on Core 0 for reliable portal/MQTT operation
+  // Main loop runs on Core 1 (default Arduino core)
+  // This separation prevents I2C/display operations from starving WiFi stack
+  xTaskCreatePinnedToCore(
+    wifiTask,           // Task function
+    "WiFiTask",         // Task name
+    8192,               // Stack size (8KB - WiFiManager needs significant stack)
+    NULL,               // Parameters
+    1,                  // Priority (same as main loop)
+    &wifiTaskHandle,    // Task handle
+    0                   // Core 0 (WiFi core)
+  );
+  
+  LOG_DEBUG("WiFi task created on Core 0, main loop on Core %d", xPortGetCoreID());
 }
 
 
@@ -435,22 +516,28 @@ void setup() {
 //=====================================
 void loop() {
   //-----------------------------------
+  // Timing
+  //-----------------------------------
+  uint32_t currentTime = millis();
+  
+  // Periodic heap monitoring (every 10 seconds in dev mode)
+  #ifdef CHECK_HEAP
+  static uint32_t lastHeapCheck = 0;
+  if (currentTime - lastHeapCheck > 10000) {
+    lastHeapCheck = currentTime;
+    LOG_DEBUG("Heap: free=%u, min=%u, maxAlloc=%u", 
+              ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+  }
+  #endif
+  
+  //-----------------------------------
   // LED Animation Updates
   //-----------------------------------
   // Update LED effects 
   updateLEDs();
   
-  //-----------------------------------
-  // Web Portal Processing
-  //-----------------------------------
-  // Handle web portal (WiFiManager)
-  // Processes HTTP requests, serves configuration pages
-  // WiFiManager automatically manages AP mode when WiFi is disconnected
-  wm.process();
-  
-  // Process any pending background saves from web portal
-  // This defers slow NVS/SD writes until after HTTP response is sent
-  processBackgroundSaves();
+  // NOTE: WiFi portal (wm.process), MQTT, and background saves are now
+  // handled by wifiTask() running on Core 0 for reliable operation
 
   //-----------------------------------
   // Button Processing
@@ -460,38 +547,56 @@ void loop() {
   button2.loop();
 
   //-----------------------------------
-  // Camera Reinitialization
+  // Sensor Reinitialization (with exponential backoff)
   //-----------------------------------
-  // If camera not initialized, attempt reinitialization
+  // If sensor not initialized, attempt reinitialization with backoff
   if (!cameraInitialized) {
-    // Try to reinitialize every 5 seconds
-    delay(5000);
-    cameraInitialized = initCamera();
-    return;  // Skip rest of loop until camera is ready
+    // Show error on screen if not already displayed
+    if (!cameraErrorDisplayed) {
+      displayError("Sensor Not Responding");
+      backlightOn();
+      cameraErrorDisplayed = true;
+      LOG_ALWAYS("Sensor error displayed - will retry with backoff");
+    }
+    
+    // Non-blocking retry with exponential backoff
+    if (currentTime - lastCameraRetry >= cameraBackoffInterval) {
+      lastCameraRetry = currentTime;
+      LOG_DEBUG("Attempting to reinitialize sensor (backoff: %lu sec)...", cameraBackoffInterval / 1000);
+      
+      cameraInitialized = initCamera();
+      
+      if (cameraInitialized) {
+        // Success - reset backoff and clear error display
+        cameraBackoffInterval = 5000;
+        cameraErrorDisplayed = false;
+        clearDisplay();
+        LOG_ALWAYS("Sensor reinitialized successfully");
+      } else {
+        // Failed - increase backoff interval (cap at 1 hour)
+        cameraBackoffInterval = min(cameraBackoffInterval * 2, CAMERA_BACKOFF_MAX);
+        LOG_DEBUG("Sensor reinit failed, next attempt in %lu seconds", cameraBackoffInterval / 1000);
+      }
+    }
+    // Don't return - allow rest of loop to process (buttons, etc.)
   }
   
-  //-----------------------------------
-  // MQTT Connection Maintenance
-  //-----------------------------------
-  // Maintain MQTT connection
-  if (!mqttClient.connected()) {
-    reconnectMQTT();  // Attempt reconnection
-  }
-  mqttClient.loop();  // Process MQTT messages
+  // NOTE: MQTT is now handled by wifiTask() on Core 0
   
   //-----------------------------------
   // Camera Data Acquisition
   //-----------------------------------
-  // Read camera data at high speed (aiming for ~100Hz)
+  // Adaptive polling rate based on tracking state:
+  // - When idle (WAITING_FOR_IR): 20Hz (50ms)
+  // - When tracking (READY/RECORDING): 100Hz (10ms) - responsive gesture capture
   // Skip camera processing when in settings mode (still process during spell recording)
-  uint32_t currentTime = millis();
-  if (!inSettingsMode && currentTime - lastReadTime >= 10) { // Read every 10ms (100Hz)
+  // Skip entirely if camera/sensor is not initialized
+  uint32_t cameraInterval = isTrackingActive() ? 10 : 50;
+  
+  if (cameraInitialized && !inSettingsMode && currentTime - lastReadTime >= cameraInterval) {
     readCameraData();  // Process IR tracking and gesture recognition
     lastReadTime = currentTime;
   }
-  
-  // Minimal delay to prevent watchdog issues
-  delayMicroseconds(100);
 
   //-----------------------------------
   // Screen Timeout Handling
@@ -503,11 +608,14 @@ void loop() {
     // Clear spell name after 3 seconds
     screenSpellOnTime = 0;
     // Restore idle background after spell display timeout
-    restoreIdleBackground();
+    clearDisplay();
   }
 
   // Check if the screen has been on for too long without activity
-  if (backlightStateOn && (millis() - screenOnTime >= screenTimeout)) {
+  // Check if the screen has been on for too long without activity
+  // Skip timeout while user is interacting with settings menu so device
+  // doesn't appear unresponsive during configuration.
+  if (!inSettingsMode && backlightStateOn && (millis() - screenOnTime >= screenTimeout)) {
     // Turn off backlight after 60 seconds
     backlightOff();
   }
